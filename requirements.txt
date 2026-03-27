@@ -1,0 +1,4 @@
+Flask==3.0.3
+ephem==4.2.1
+holidays==0.93
+gunicorn==22.0.0
