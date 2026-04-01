@@ -608,12 +608,44 @@ def _collect_state_festivals(p: dict, d) -> dict:
                 state_map[s].remove("Maghi Purnima")
 
     # Remove Dussehra if it fires outside Sep-Oct window
-    if ti == 9 and ss in [5,6] and d.month not in [9, 10]:
+    if ti == 9 and ss in [5,6] and d.month not in [9, 10, 11]:
         for s in ALL_STATES:
             for name in ["Dussehra / Vijayadashami","Mysuru Dasara (State Festival)","Kullu Dussehra",
                          "Bastar Dussehra","Durga Puja Dashami / Sindur Khela","Kota Dussehra","Dussehra"]:
                 if name in state_map[s]:
                     state_map[s].remove(name)
+
+    # Remove Navratri if it fires outside Sep-Nov window (second occurrence is wrong)
+    if ti == 0 and ss in [5,6] and d.month not in [9, 10, 11]:
+        for s in ALL_STATES:
+            if "Shardiya Navratri begins / Ghatasthapana" in state_map[s]:
+                state_map[s].remove("Shardiya Navratri begins / Ghatasthapana")
+
+    # Remove second Navratri occurrence — only one per year (first one in Sep-Oct is correct)
+    if ti == 0 and ss == 6 and d.month in [10, 11]:
+        # Check if this is the second Navratri (first was already in Sep-Oct with ss=5)
+        # If month is Nov, it's definitely wrong
+        if d.month == 11:
+            for s in ALL_STATES:
+                if "Shardiya Navratri begins / Ghatasthapana" in state_map[s]:
+                    state_map[s].remove("Shardiya Navratri begins / Ghatasthapana")
+
+    # Remove Diwali from non-Kartik Amavasya (sun_sign != 6)
+    if ti == 29 and ss != 6:
+        for s in ALL_STATES:
+            for name in ["Diwali / Lakshmi Puja", "Kali Puja (State Holiday)",
+                         "Naraka Chaturdashi (South)"]:
+                if name in state_map[s]:
+                    state_map[s].remove(name)
+
+    # Remove Diwali from Chaturdashi (tithi 28) — Diwali is ONLY on Amavasya
+    # Chaturdashi is Narak Chaturdashi, not Diwali
+    if ti == 28:
+        for s in ALL_STATES:
+            if "Diwali / Lakshmi Puja" in state_map[s]:
+                state_map[s].remove("Diwali / Lakshmi Puja")
+            if "Diwali" in state_map[s]:
+                state_map[s].remove("Diwali")
 
     # 5. Nakshatra override: Onam Thiruvonam = Shravana nakshatra
     if ss in [4, 5] and p["nakshatra_index"] == 21:
@@ -628,9 +660,27 @@ def _collect_state_festivals(p: dict, d) -> dict:
     india_hols = holidays_lib.India(years=d.year)
     official   = india_hols.get(d)
     if official:
+        # Skip if our engine already has a more accurate version of this festival
+        already_covered = any(
+            official.lower() in f.lower() or f.lower() in official.lower()
+            for fests in state_map.values() for f in fests
+        )
+        # Also skip Diwali from holidays lib if today is NOT Amavasya (tithi 29)
+        # The holidays lib sometimes puts Diwali on Chaturdashi
+        if official == "Diwali" and ti != 29:
+            already_covered = True
+        if not already_covered:
+            for s in ALL_STATES:
+                if official not in state_map[s]:
+                    state_map[s].append(official)
+
+    # Final cleanup: remove Dussehra from Navami (tithi 8) — it belongs only on Dashami (tithi 9)
+    if ti == 8:
         for s in ALL_STATES:
-            if official not in state_map[s]:
-                state_map[s].append(official)
+            for name in ["Dussehra / Vijayadashami","Mysuru Dasara (State Festival)",
+                         "Kullu Dussehra","Bastar Dussehra","Kota Dussehra","Dussehra"]:
+                if name in state_map[s]:
+                    state_map[s].remove(name)
 
     return state_map
 
