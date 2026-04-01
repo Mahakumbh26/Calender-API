@@ -622,35 +622,15 @@ def get_calendar_data(date_str: str, state: str = None) -> dict:
                 seen.add(f)
                 all_unique.append(f)
 
-    crop_signals = _crop_demand_signal(p["tithi_index"], all_unique, p["vara_index"])
+    ti = p["tithi_index"]
 
     return {
-        "date": date_str,
-        "panchang": {
-            "vara":        vara_name,
-            "lunar_month": lunar_month_name,
-            "tithi":       tithi_name,
-            "tithi_index": p["tithi_index"],
-            "nakshatra":   nakshatra_name,
-            "yoga":        yoga_name,
-            "karana":      karana_name,
-            "paksha":      PAKSHA[p["tithi_index"]],
-        },
-        "festivals_today":  all_unique,
-        "state_festivals":  active,
-        "crop_demand":      crop_signals,
-        "features": {
-            "day_of_week":    p["vara_index"],
-            "month":          d.month,
-            "tithi_index":    p["tithi_index"],
-            "sun_sign":       p["sun_sign_index"],
-            "is_weekend":     1 if p["vara_index"] >= 5 else 0,
-            "is_holiday":     1 if all_unique else 0,
-            "is_amavasya":    1 if p["tithi_index"] == 29 else 0,
-            "is_purnima":     1 if p["tithi_index"] == 14 else 0,
-            "is_ekadashi":    1 if p["tithi_index"] in [10, 25] else 0,
-            "is_shukla":      1 if p["tithi_index"] < 15 else 0,
-            "festival_count": len(all_unique),
-            "demand_score":   crop_signals["demand_score"],
-        },
+        "date":        date_str,
+        "tithi":       tithi_name,
+        "nakshatra":   nakshatra_name,
+        "is_amavasya": ti == 29,
+        "is_purnima":  ti == 14,
+        "is_ekadashi": ti in [10, 25],
+        "festivals":   all_unique,
+        "state_festivals": active,
     }
