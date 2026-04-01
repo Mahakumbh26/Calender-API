@@ -171,6 +171,7 @@ def _build_lunar_rules():
     # Holi handled by Purnima block (PURNIMA_NAMES[10] = "Phalguna Purnima / Holi")
     # Narali Purnima — add separately since it's MH-specific
     add([3,4],[14], _s("Narali Purnima / Coconut Festival","Maharashtra","Goa"))
+    add([3,4],[14], _s("Vara Mahalakshmi Vrata","Karnataka","Andhra Pradesh","Telangana","Tamil Nadu"))
     add([3,4],[14], _s("Avani Avittam / Upakarma","Tamil Nadu","Kerala","Puducherry"))
     add([3,4],[14], _s("Jhulan Purnima / Jhulana Yatra","West Bengal","Odisha","Assam"))
     add([3,4],[17], _s("Kajari Teej","Madhya Pradesh","Uttar Pradesh","Bihar","Rajasthan","Chhattisgarh"))
@@ -184,7 +185,7 @@ def _build_lunar_rules():
     add([4,5],[2],  _s("Hartalika Teej","Maharashtra","Goa","Uttar Pradesh","Bihar","Rajasthan","Madhya Pradesh"))
     add([4,5],[3],  _m(
         _all("Ganesh Chaturthi"),
-        _s("Vinayaka Chaturthi (State Holiday)","Maharashtra","Goa","Karnataka",
+        _s("Ganesh Chaturthi / Vinayaka Chaturthi (State Holiday)","Maharashtra","Goa","Karnataka",
            "Andhra Pradesh","Telangana","Tamil Nadu","Puducherry"),
     ))
     add([4,5],[4],  _s("Rishi Panchami","Maharashtra","Gujarat","Rajasthan","Uttar Pradesh","Bihar","Madhya Pradesh"))
@@ -214,6 +215,7 @@ def _build_lunar_rules():
     add([5,6],[8],  _m(
         _all("Maha Navami"),
         _s("Ayudha Puja (State Holiday)","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana","Kerala","Puducherry"),
+        _s("Mysuru Dasara (State Festival)","Karnataka"),
     ))
     # Dussehra = sun=5 OR sun=6 (verified 2020-2030)
     add([5,6],[9], _m(
@@ -252,11 +254,16 @@ def _build_lunar_rules():
     add([6,7],[20], _s("Chhath Puja - Kharna","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"))
     add([6,7],[21], _s("Chhath Puja - Sandhya Arghya","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"))
     add([6,7],[22], _s("Chhath Puja - Usha Arghya","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"))
-    add([6,7],[25], _m(_all("Dev Uthani Ekadashi / Tulsi Vivah"), _s("Kartik Ekadashi / Wari","Maharashtra","Goa")))
+    add([6,7],[25], _m(_all("Dev Uthani Ekadashi / Tulsi Vivah"),
+                       _s("Kartik Ekadashi / Wari","Maharashtra","Goa"),
+                       _s("Tulsi Vivah","Maharashtra","Goa","Gujarat","Rajasthan","Uttar Pradesh","Bihar")))
     # Kartik Purnima = sun=6 OR sun=7 (verified 2020-2030)
     add([6,7],[14], _m(
         _all("Kartik Purnima / Dev Deepawali"),
-        _s("Guru Nanak Jayanti","Punjab","Haryana","Delhi","Himachal Pradesh","Uttarakhand","Chandigarh","Jammu & Kashmir"),
+        _s("Guru Nanak Jayanti","Punjab","Haryana","Delhi","Himachal Pradesh","Uttarakhand",
+           "Chandigarh","Jammu & Kashmir","Karnataka","Maharashtra","Gujarat","Rajasthan",
+           "Uttar Pradesh","Bihar","West Bengal","Andhra Pradesh","Telangana","Tamil Nadu",
+           "Kerala","Odisha","Assam","Madhya Pradesh","Chhattisgarh"),
         _s("Pushkar Fair","Rajasthan"),
         _s("Tripuri Purnima","Tripura"),
         _s("Dev Deepawali (Varanasi)","Uttar Pradesh","Bihar","Uttarakhand"),
@@ -267,8 +274,12 @@ def _build_lunar_rules():
     add([7,8],[0],  _s("Champa Shashthi / Khandoba Festival begins","Maharashtra","Goa"))
     add([7,8],[4],  _s("Vivah Panchami","Uttar Pradesh","Bihar","Madhya Pradesh","Rajasthan","Uttarakhand","Delhi"))
     add([7,8],[5],  _s("Champa Shashthi / Khandoba Festival (main day)","Maharashtra","Goa"))
-    add([7,8],[10], _all("Mokshada Ekadashi / Gita Jayanti"))
-    add([7,8],[14], _s("Dattatreya Jayanti","Maharashtra","Karnataka","Goa","Andhra Pradesh","Telangana","Gujarat"))
+    add([7,8],[10], _m(_all("Mokshada Ekadashi / Gita Jayanti"),
+                       _s("Vaikunta Ekadashi","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana","Kerala")))
+    add([7,8],[14], _m(
+        _s("Dattatreya Jayanti / Datta Jayanti","Maharashtra","Karnataka","Goa","Andhra Pradesh","Telangana","Gujarat"),
+        _s("Tripuri Purnima","Tripura"),
+    ))
     # ── Paush festivals ───────────────────────────────────────────────────────
     # sun=8(Sagittarius) or 9(Capricorn)
     add([8,9],[14], _m(
@@ -279,6 +290,10 @@ def _build_lunar_rules():
 
     # ── Magha festivals ───────────────────────────────────────────────────────
     # Vasant Panchami = sun=9(Capricorn) or 10(Aquarius)
+    add([9,10],[3], _m(
+        _s("Maghi Ganesh Jayanti","Maharashtra","Goa"),
+        _s("Sakat Chauth","Uttar Pradesh","Bihar","Rajasthan","Madhya Pradesh"),
+    ))
     add([9,10],[4], _m(
         _all("Vasant Panchami"),
         _s("Saraswati Puja (State Holiday)","West Bengal","Odisha","Assam","Bihar","Jharkhand","Tripura"),
@@ -299,7 +314,22 @@ def _build_lunar_rules():
     add([10,11],[4],  _s("Rang Panchami","Maharashtra","Madhya Pradesh","Rajasthan","Gujarat","Chhattisgarh"))
     add([10,11],[9],  _all("Amalaki Ekadashi"))
     add([10,11],[13], _m(_all("Holika Dahan"), _s("Shimga (Holi eve)","Maharashtra","Goa")))
-    add([10,11],[15], _s("Dhuleti / Rangwali Holi","Gujarat","Rajasthan","Madhya Pradesh","Uttar Pradesh","Bihar","Chhattisgarh"))
+    # Holi = Purnima (tithi 14) in some years, Krishna Pratipada (tithi 15) in others
+    # Both are valid — depends on when Purnima ends relative to sunrise
+    add([10,11],[14], _m(
+        _all("Holi"),
+        _s("Dol Jatra / Dol Purnima","West Bengal","Odisha","Assam","Tripura"),
+        _s("Shigmo","Goa"),
+        _s("Yaosang","Manipur"),
+        _s("Phakuwa","Assam"),
+    ))
+    add([10,11],[15], _m(
+        _all("Holi"),
+        _s("Dol Jatra / Dol Purnima","West Bengal","Odisha","Assam","Tripura"),
+        _s("Shigmo","Goa"),
+        _s("Yaosang","Manipur"),
+        _s("Dhuleti / Rangwali Holi","Gujarat","Rajasthan","Madhya Pradesh","Uttar Pradesh","Bihar","Chhattisgarh"),
+    ))
 
     # Merge — last entry wins for same key
     result = {}
@@ -343,8 +373,8 @@ def _build_solar_rules():
         _s("Makara Vilakku (Sabarimala)","Kerala","Lakshadweep"),
         _s("Tusu Puja / Makar Parab","West Bengal","Jharkhand","Odisha"),
         _s("Uttarayani Mela (Bageshwar)","Uttarakhand"),
-        _s("Sankranti / Ellu Birodhu","Karnataka"),
-        _s("Til-Gul Sankranti","Maharashtra","Goa"),
+        _s("Makar Sankranti / Sankranti / Ellu Birodhu","Karnataka"),
+        _s("Makar Sankranti / Til-Gul","Maharashtra","Goa"),
         _s("Maghi (Muktsar Fair)","Punjab"),
     ))
     add((1,15),  _m(_s("Thiruvalluvar Day","Tamil Nadu","Puducherry"), _s("Magh Bihu (State Holiday)","Assam")))
@@ -433,6 +463,45 @@ def _build_solar_rules():
     add((11, 1), _s("Puducherry Liberation Day","Puducherry"))
     add((3, 4),  _s("Island Tourism Festival","Andaman & Nicobar"))
 
+    # ── Maharashtra missing festivals ─────────────────────────────────────────
+    # Maghi Ganesh Jayanti = Magha Shukla Chaturthi (solar approx: late Jan/Feb)
+    # handled via lunar — adding solar fallback
+    add((1, 7),  _s("Maghi Ganesh Jayanti","Maharashtra","Goa"))
+    add((2, 7),  _s("Maghi Ganesh Jayanti","Maharashtra","Goa"))
+    # Jejuri Khandoba Yatra — Champashashthi (already covered) + Somvati Amavasya
+    add((12, 6), _s("Jejuri Khandoba Yatra (Champashashthi)","Maharashtra"))
+    # Bhimashankar Mahashivratri — same as Maha Shivratri but specific to Bhimashankar
+    # already covered by Maha Shivratri
+    # Tripuri Purnima — Kartik Purnima (already covered)
+    # Datta Jayanti — Margashirsha Purnima (already covered as Dattatreya Jayanti)
+
+    # ── Karnataka missing festivals ───────────────────────────────────────────
+    # Vara Mahalakshmi Vrata — Shravana Shukla Purnima Friday (solar approx Aug)
+    add((8, 8),  _s("Vara Mahalakshmi Vrata","Karnataka","Andhra Pradesh","Telangana","Tamil Nadu"))
+    add((8, 9),  _s("Vara Mahalakshmi Vrata","Karnataka","Andhra Pradesh","Telangana","Tamil Nadu"))
+    # Vaikunta Ekadashi — Margashirsha Shukla Ekadashi (already as Mokshada Ekadashi)
+    # adding Karnataka-specific name
+    add((12, 1), _s("Vaikunta Ekadashi","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana","Kerala"))
+    add((12, 2), _s("Vaikunta Ekadashi","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana","Kerala"))
+    # Mahamastakabhisheka (Shravanabelagola) — every 12 years, next ~2030
+    # Kadlekai Parishe (Bengaluru Groundnut Fair) — last Sunday of Kartik month, approx Nov
+    add((11, 25), _s("Kadlekai Parishe (Bengaluru Groundnut Fair)","Karnataka"))
+    add((11, 26), _s("Kadlekai Parishe (Bengaluru Groundnut Fair)","Karnataka"))
+    # Mangalore Dasara — same as Dussehra but specific to Mangalore
+    # already covered by Dussehra
+    # Yellamma Jatre — Phalguna Purnima (Saundatti, Karnataka)
+    add((3, 14), _s("Yellamma Jatre (Saundatti)","Karnataka"))
+    add((3, 15), _s("Yellamma Jatre (Saundatti)","Karnataka"))
+    # Banashankari Jatre — Magha Amavasya (Badami, Karnataka)
+    add((1, 28), _s("Banashankari Jatre (Badami)","Karnataka"))
+    add((1, 29), _s("Banashankari Jatre (Badami)","Karnataka"))
+    add((2, 10), _s("Banashankari Jatre (Badami)","Karnataka"))
+    # Marikamba Jatre — Shravana (Sirsi, Karnataka) — biennial, approx Aug
+    add((8, 1),  _s("Marikamba Jatre (Sirsi)","Karnataka"))
+    # Suggi Habba — harvest festival, Ugadi season (already covered)
+    # Kadalekayi Parishe — same as Kadlekai Parishe above
+    # Dollu Kunitha — cultural festival, no fixed date (performance art)
+
     result = {}
     for key, sd in e:
         if key not in result:
@@ -499,7 +568,7 @@ def _collect_state_festivals(p: dict, d) -> dict:
         name = AMAVASYA_NAMES.get(ss, "Amavasya")
         for s in ALL_STATES:
             state_map[s].append(name)
-        # Diwali special case — Kartik Amavasya (sun_sign=6)
+        # Diwali — Kartik Amavasya (sun_sign=6)
         if ss == 6:
             for s in ALL_STATES:
                 if "Diwali / Lakshmi Puja" not in state_map[s]:
@@ -520,6 +589,18 @@ def _collect_state_festivals(p: dict, d) -> dict:
             for s in ["Maharashtra","Chhattisgarh","Madhya Pradesh"]:
                 if "Bail Pola / Pithori Amavasya" not in state_map[s]:
                     state_map[s].append("Bail Pola / Pithori Amavasya")
+
+    # 1b. Chaturdashi (tithi 28) — Diwali eve / Narak Chaturdashi
+    # Official Diwali date is often Chaturdashi when Amavasya starts after sunset
+    elif ti == 28:
+        if ss == 6:
+            # Kartik Krishna Chaturdashi = Diwali (official date in most years)
+            for s in ALL_STATES:
+                state_map[s].append("Diwali / Narak Chaturdashi")
+            for s in ["West Bengal","Assam","Odisha","Tripura"]:
+                state_map[s].append("Kali Puja")
+            for s in ["Tamil Nadu","Karnataka","Andhra Pradesh","Telangana","Kerala","Puducherry"]:
+                state_map[s].append("Naraka Chaturdashi (South)")
 
     # 2. Purnima — purely tithi-based, name from PURNIMA_NAMES dict
     elif ti == 14:
@@ -638,15 +719,6 @@ def _collect_state_festivals(p: dict, d) -> dict:
                 if name in state_map[s]:
                     state_map[s].remove(name)
 
-    # Remove Diwali from Chaturdashi (tithi 28) — Diwali is ONLY on Amavasya
-    # Chaturdashi is Narak Chaturdashi, not Diwali
-    if ti == 28:
-        for s in ALL_STATES:
-            if "Diwali / Lakshmi Puja" in state_map[s]:
-                state_map[s].remove("Diwali / Lakshmi Puja")
-            if "Diwali" in state_map[s]:
-                state_map[s].remove("Diwali")
-
     # 5. Nakshatra override: Onam Thiruvonam = Shravana nakshatra
     if ss in [4, 5] and p["nakshatra_index"] == 21:
         for s in ["Kerala","Lakshadweep"]:
@@ -674,11 +746,12 @@ def _collect_state_festivals(p: dict, d) -> dict:
                 if official not in state_map[s]:
                     state_map[s].append(official)
 
-    # Final cleanup: remove Dussehra from Navami (tithi 8) — it belongs only on Dashami (tithi 9)
+    # Final cleanup: remove generic Dussehra from Navami — but keep Mysuru Dasara
+    # Mysuru Dasara IS officially on Navami in Karnataka
     if ti == 8:
         for s in ALL_STATES:
-            for name in ["Dussehra / Vijayadashami","Mysuru Dasara (State Festival)",
-                         "Kullu Dussehra","Bastar Dussehra","Kota Dussehra","Dussehra"]:
+            for name in ["Dussehra / Vijayadashami","Kullu Dussehra",
+                         "Bastar Dussehra","Kota Dussehra"]:
                 if name in state_map[s]:
                     state_map[s].remove(name)
 
