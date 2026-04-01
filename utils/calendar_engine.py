@@ -77,12 +77,123 @@ def _m(*dicts):
     return out
 
 # ═════════════════════════════════════════════════════════════════════════════
-# LUNAR RULES — dynamic, shifts every year, computed from tithi + lunar month
-# Key: (lunar_month_index 0-11, tithi_index 0-29)
-# Value: {state: festival_name}
+# LUNAR RULES — built via function to avoid duplicate key bugs
+# Key: (sun_sign_index 0-11, tithi_index 0-29)
+# Each festival covers BOTH adjacent sun-sign values so it works every year
 # ═════════════════════════════════════════════════════════════════════════════
 
-LUNAR_RULES = {
+def _build_lunar_rules():
+    entries = []
+    def add(lm_list, ti_list, sd):
+        for lm in lm_list:
+            for ti in ti_list:
+                entries.append(((lm % 12, ti), sd))
+    # Gudi Padwa/Ugadi — Chaitra Shukla Pratipada (Sun Pisces/Aries)
+    add([11,0],[0,1],_m(_s("Gudi Padwa","Maharashtra","Goa","Dadra & Nagar Haveli"),_s("Ugadi","Karnataka","Andhra Pradesh","Telangana"),_s("Cheti Chand","Rajasthan","Gujarat","Delhi","Madhya Pradesh","Chandigarh"),_s("Navreh","Jammu & Kashmir","Ladakh"),_s("Sajibu Nongma Panba","Manipur"),_s("Chaitra Navratri begins / Ghatasthapana","Uttar Pradesh","Bihar","Jharkhand","Uttarakhand","Himachal Pradesh","Haryana","Punjab","Rajasthan","Madhya Pradesh","Chhattisgarh","Delhi")))
+    add([11,0],[2],_s("Chaitri Gaur begins","Maharashtra","Goa"))
+    add([11,0],[5],_s("Yamuna Chhath","Uttar Pradesh","Bihar","Delhi","Uttarakhand"))
+    add([11,0],[7],_m(_s("Chaitra Ashtami","West Bengal","Odisha","Assam","Tripura"),_s("Sheetala Ashtami","Uttar Pradesh","Rajasthan","Haryana","Punjab","Delhi")))
+    add([11,0],[8],_all("Ram Navami"))
+    add([11,0],[13],_all("Mahavir Jayanti"))
+    add([11,0],[14],_m(_all("Hanuman Jayanti"),_s("Chaitra Purnima / Panguni Uthiram","Tamil Nadu","Puducherry","Kerala")))
+    # Akshaya Tritiya/Basava Jayanti — Vaishakha Shukla Tritiya (Sun Aries/Taurus)
+    add([0,1],[1,2],_m(_all("Akshaya Tritiya"),_s("Parashurama Jayanti","Kerala","Karnataka","Maharashtra","Goa","Andhra Pradesh","Telangana"),_s("Basava Jayanti","Karnataka","Andhra Pradesh","Telangana")))
+    add([0,1],[4],_s("Shankaracharya Jayanti","Kerala","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana"))
+    add([0,1],[8],_s("Sita Navami","Uttar Pradesh","Bihar","Jharkhand","Madhya Pradesh","Uttarakhand","Rajasthan"))
+    add([0,1],[14],_m(_all("Buddha Purnima"),_s("Narasimha Jayanti","Andhra Pradesh","Telangana","Karnataka","Tamil Nadu")))
+    # Jyeshtha (Sun Taurus/Gemini)
+    add([1,2],[5],_s("Skanda Sashti","Tamil Nadu","Puducherry","Kerala","Karnataka","Andhra Pradesh","Telangana"))
+    add([1,2],[9],_s("Ganga Dussehra","Uttar Pradesh","Uttarakhand","Bihar","Jharkhand","Delhi","Madhya Pradesh","Rajasthan"))
+    add([1,2],[10],_m(_s("Vat Savitri Puja","Maharashtra","Goa","Gujarat","Bihar","Jharkhand","Uttar Pradesh","Madhya Pradesh","Rajasthan"),_s("Nirjala Ekadashi","Uttar Pradesh","Bihar","Rajasthan","Delhi","Uttarakhand")))
+    add([1,2],[14],_s("Vat Purnima","Maharashtra","Gujarat","Goa"))
+    add([1,2],[28],_all("Shani Jayanti"))
+    add([1,2],[29],_s("Jyeshtha Amavasya","Uttar Pradesh","Bihar","Rajasthan","Madhya Pradesh","Delhi"))
+    # Ashadha (Sun Gemini/Cancer)
+    add([2,3],[1],_m(_all("Jagannath Rath Yatra"),_s("Rath Yatra (State Holiday)","Odisha")))
+    add([2,3],[5],_s("Skanda Sashti","Tamil Nadu","Puducherry","Andhra Pradesh","Telangana"))
+    add([2,3],[10],_m(_all("Devshayani Ekadashi"),_s("Ashadhi Ekadashi / Wari","Maharashtra","Goa")))
+    add([2,3],[14],_all("Guru Purnima"))
+    add([2,3],[29],_s("Ashadha Amavasya","Karnataka","Andhra Pradesh","Telangana","Tamil Nadu","Kerala"))
+    # Shravana (Sun Cancer/Leo)
+    add([3,4],[2],_s("Hariyali Teej","Rajasthan","Uttar Pradesh","Haryana","Punjab","Delhi","Madhya Pradesh","Bihar","Uttarakhand","Himachal Pradesh","Chandigarh"))
+    add([3,4],[4],_all("Nag Panchami"))
+    add([3,4],[6],_s("Mangala Gaur (Shravana Tuesday - new brides)","Maharashtra","Goa"))
+    add([3,4],[7],_s("Tulsi Shravana Saptami","Maharashtra","Gujarat"))
+    add([3,4],[10],_all("Putrada Ekadashi"))
+    add([3,4],[11],_s("Onam - Atham (Day 1)","Kerala","Lakshadweep"))
+    add([3,4],[13,14],_m(_all("Raksha Bandhan"),_s("Narali Purnima / Coconut Festival","Maharashtra","Goa"),_s("Avani Avittam / Upakarma","Tamil Nadu","Kerala","Puducherry"),_s("Jhulan Purnima / Jhulana Yatra","West Bengal","Odisha","Assam"),_s("Gamha Purnima","Odisha"),_s("Shravana Purnima","Uttar Pradesh","Bihar","Uttarakhand","Rajasthan")))
+    add([3,4],[17],_s("Kajari Teej","Madhya Pradesh","Uttar Pradesh","Bihar","Rajasthan","Chhattisgarh"))
+    add([3,4],[22],_all("Krishna Janmashtami"))
+    add([3,4],[23],_s("Nandotsav","Uttar Pradesh","Rajasthan","Madhya Pradesh"))
+    add([3,4],[29],_s("Bail Pola / Pithori Amavasya","Maharashtra","Chhattisgarh","Madhya Pradesh"))
+    # Bhadrapada (Sun Leo/Virgo)
+    add([4,5],[2],_s("Hartalika Teej","Maharashtra","Goa","Uttar Pradesh","Bihar","Rajasthan","Madhya Pradesh"))
+    add([4,5],[3],_m(_all("Ganesh Chaturthi"),_s("Vinayaka Chaturthi (State Holiday)","Maharashtra","Goa","Karnataka","Andhra Pradesh","Telangana","Tamil Nadu","Puducherry")))
+    add([4,5],[4],_s("Rishi Panchami","Maharashtra","Gujarat","Rajasthan","Uttar Pradesh","Bihar","Madhya Pradesh"))
+    add([4,5],[5],_s("Surya Shashti / Skanda Sashti","Tamil Nadu","Puducherry","Karnataka"))
+    add([4,5],[7],_m(_all("Radha Ashtami"),_s("Gowri Habba","Karnataka")))
+    add([4,5],[8],_s("Mahalakshmi Puja (3-day)","Maharashtra","Goa"))
+    add([4,5],[10],_s("Khudurukuni Osha","Odisha"))
+    add([4,5],[11,12],_s("Onam - Thiruvonam (Main Day)","Kerala","Lakshadweep"))
+    add([4,5],[13],_m(_all("Anant Chaturdashi"),_s("Ganesh Visarjan (State Holiday)","Maharashtra","Goa")))
+    add([4,5],[25],_all("Indira Ekadashi"))
+    add([4,5],[29],_m(_all("Mahalaya Amavasya / Pitru Paksha ends"),_s("Mahalaya / Durga Puja begins","West Bengal","Assam","Odisha","Tripura")))
+    # Ashwin (Sun Virgo/Libra)
+    add([5,6],[0],_all("Shardiya Navratri begins / Ghatasthapana"))
+    add([5,6],[5],_m(_s("Saraswati Puja / Saraswati Avahan","West Bengal","Odisha","Assam","Tripura","Bihar","Jharkhand"),_s("Ayudha Puja","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana","Kerala","Puducherry"),_s("Lalita Sashti","Maharashtra","Gujarat")))
+    add([5,6],[6],_s("Saraswati Puja (main day)","West Bengal","Odisha","Assam","Tripura"))
+    add([5,6],[7],_m(_all("Durga Ashtami / Maha Ashtami"),_s("Sandhi Puja","West Bengal","Assam","Tripura")))
+    add([5,6],[8],_m(_all("Maha Navami"),_s("Ayudha Puja (State Holiday)","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana","Kerala","Puducherry"),_s("Navami Homa","West Bengal","Odisha")))
+    add([5,6],[9],_m(_all("Dussehra / Vijayadashami"),_s("Mysuru Dasara (State Festival)","Karnataka"),_s("Kullu Dussehra","Himachal Pradesh"),_s("Bastar Dussehra","Chhattisgarh"),_s("Durga Puja Dashami / Sindur Khela","West Bengal","Assam","Tripura"),_s("Kota Dussehra","Rajasthan")))
+    add([5,6],[10],_all("Papankusha Ekadashi"))
+    add([5,6],[14],_m(_all("Sharad Purnima / Kojagiri Purnima"),_s("Lakshmi Puja","West Bengal","Odisha","Assam","Tripura"),_s("Valmiki Jayanti","Punjab","Haryana","Delhi","Uttar Pradesh","Himachal Pradesh","Chandigarh"),_s("Kaumudi Mahotsav","Uttar Pradesh","Bihar")))
+    # Kartik (Sun Libra/Scorpio)
+    add([6,7],[18],_s("Karva Chauth","Rajasthan","Uttar Pradesh","Punjab","Haryana","Delhi","Himachal Pradesh","Madhya Pradesh","Uttarakhand","Bihar","Jammu & Kashmir","Chandigarh"))
+    add([6,7],[22],_s("Ahoi Ashtami","Uttar Pradesh","Rajasthan","Haryana","Punjab","Delhi","Madhya Pradesh","Himachal Pradesh"))
+    add([6,7],[26],_s("Govatsa Dwadashi / Vasu Baras","Maharashtra","Gujarat","Goa"))
+    add([6,7],[27],_m(_all("Dhanteras / Dhanvantari Jayanti"),_s("Yama Deepam","Tamil Nadu","Andhra Pradesh","Telangana","Karnataka")))
+    add([6,7],[28],_m(_all("Narak Chaturdashi / Choti Diwali"),_s("Kali Puja","West Bengal","Assam","Odisha","Tripura")))
+    add([6,7],[29],_m(_all("Diwali / Lakshmi Puja"),_s("Kali Puja (State Holiday)","West Bengal","Assam","Odisha","Tripura"),_s("Naraka Chaturdashi (South)","Tamil Nadu","Karnataka","Andhra Pradesh","Telangana","Kerala","Puducherry")))
+    add([6,7],[15],_m(_all("Govardhan Puja / Annakut"),_s("Padwa / Bali Pratipada","Maharashtra","Goa"),_s("Bali Pratipada","Karnataka","Andhra Pradesh","Telangana"),_s("Gujarati New Year / Bestu Varas","Gujarat")))
+    add([6,7],[16],_all("Bhai Dooj / Bhau Beej / Yama Dwitiya"))
+    add([6,7],[19],_s("Chhath Puja - Nahay Khay","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"))
+    add([6,7],[20],_s("Chhath Puja - Kharna","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"))
+    add([6,7],[21],_s("Chhath Puja - Sandhya Arghya","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"))
+    add([6,7],[22],_s("Chhath Puja - Usha Arghya","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"))
+    add([6,7],[25],_m(_all("Dev Uthani Ekadashi / Tulsi Vivah"),_s("Kartik Ekadashi / Wari","Maharashtra","Goa")))
+    add([6,7],[14],_m(_all("Kartik Purnima / Dev Deepawali"),_s("Guru Nanak Jayanti","Punjab","Haryana","Delhi","Himachal Pradesh","Uttarakhand","Chandigarh","Jammu & Kashmir"),_s("Pushkar Fair","Rajasthan"),_s("Tripuri Purnima","Tripura"),_s("Dev Deepawali (Varanasi)","Uttar Pradesh","Bihar","Uttarakhand")))
+    # Margashirsha (Sun Scorpio/Sagittarius)
+    add([7,8],[0],_s("Champa Shashthi / Khandoba Festival begins","Maharashtra","Goa"))
+    add([7,8],[4],_s("Vivah Panchami","Uttar Pradesh","Bihar","Madhya Pradesh","Rajasthan","Uttarakhand","Delhi"))
+    add([7,8],[5],_s("Champa Shashthi / Khandoba Festival (main day)","Maharashtra","Goa"))
+    add([7,8],[10],_all("Mokshada Ekadashi / Gita Jayanti"))
+    add([7,8],[14],_s("Dattatreya Jayanti","Maharashtra","Karnataka","Goa","Andhra Pradesh","Telangana","Gujarat"))
+    add([7,8],[29],_s("Margashirsha Amavasya","Maharashtra","Karnataka","Andhra Pradesh","Telangana"))
+    # Paush (Sun Sagittarius/Capricorn)
+    add([8,9],[5],_all("Saphala Ekadashi"))
+    add([8,9],[10],_all("Paush Putrada Ekadashi"))
+    add([8,9],[14],_m(_all("Paush Purnima"),_s("Shakambhari Purnima","Rajasthan","Uttar Pradesh","Madhya Pradesh"),_s("Gangasagar Mela","West Bengal")))
+    add([8,9],[28],_all("Masik Shivratri"))
+    # Magha (Sun Capricorn/Aquarius)
+    add([9,10],[4],_m(_all("Vasant Panchami"),_s("Saraswati Puja (State Holiday)","West Bengal","Odisha","Assam","Bihar","Jharkhand","Tripura"),_s("Shri Panchami","West Bengal","Odisha")))
+    add([9,10],[9],_all("Jaya Ekadashi"))
+    add([9,10],[14],_m(_all("Maghi Purnima"),_s("Magha Mela (Prayagraj)","Uttar Pradesh","Uttarakhand"),_s("Maghi (State Holiday)","Punjab","Haryana","Chandigarh"),_s("Thaipusam","Tamil Nadu","Kerala","Puducherry")))
+    add([9,10],[27,28],_all("Maha Shivratri"))
+    # Phalguna (Sun Aquarius/Pisces)
+    add([10,11],[4],_s("Rang Panchami","Maharashtra","Madhya Pradesh","Rajasthan","Gujarat","Chhattisgarh"))
+    add([10,11],[9],_all("Amalaki Ekadashi"))
+    add([10,11],[13],_m(_all("Holika Dahan"),_s("Shimga (Holi eve)","Maharashtra","Goa")))
+    add([10,11],[14],_m(_all("Holi"),_s("Dol Jatra / Dol Purnima","West Bengal","Odisha","Assam","Tripura"),_s("Shigmo","Goa"),_s("Yaosang","Manipur"),_s("Phakuwa","Assam")))
+    add([10,11],[15],_s("Dhuleti / Rangwali Holi","Gujarat","Rajasthan","Madhya Pradesh","Uttar Pradesh","Bihar","Chhattisgarh"))
+    # Merge
+    result = {}
+    for key, sd in entries:
+        if key not in result:
+            result[key] = {}
+        result[key].update(sd)
+    return result
+
+_OLD_LUNAR_RULES_START = {
 
     # ── CHAITRA (0) ───────────────────────────────────────────────────────────
     (0, 0): _m(
@@ -115,6 +226,7 @@ LUNAR_RULES = {
     (1, 2): _m(
         _all("Akshaya Tritiya"),
         _s("Parashurama Jayanti","Kerala","Karnataka","Maharashtra","Goa","Andhra Pradesh","Telangana"),
+        _s("Basava Jayanti","Karnataka","Andhra Pradesh","Telangana"),
     ),
     (1, 5): _s("Shankaracharya Jayanti","Kerala","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana"),
     (1, 9): _s("Sita Navami","Uttar Pradesh","Bihar","Jharkhand","Madhya Pradesh","Uttarakhand","Rajasthan"),
@@ -182,7 +294,7 @@ LUNAR_RULES = {
     ),
     (5, 4): _s("Rishi Panchami","Maharashtra","Gujarat","Rajasthan","Uttar Pradesh","Bihar","Madhya Pradesh"),
     (5, 5): _s("Surya Shashti / Skanda Sashti","Tamil Nadu","Puducherry","Karnataka"),
-    (5, 7): _all("Radha Ashtami"),
+    (5, 7): _m(_all("Radha Ashtami"), _s("Gowri Habba","Karnataka")),
     (5, 8): _s("Mahalakshmi Puja (3-day)","Maharashtra","Goa"),
     (5, 10): _s("Khudurukuni Osha","Odisha"),
     (5, 11): _s("Onam - Thiruvonam (Main Day)","Kerala","Lakshadweep"),
@@ -330,6 +442,8 @@ LUNAR_RULES = {
     (11, 15): _s("Dhuleti / Rangwali Holi","Gujarat","Rajasthan","Madhya Pradesh","Uttar Pradesh","Bihar","Chhattisgarh"),
     (11, 29): _s("Phalguna Amavasya","Rajasthan","Uttar Pradesh","Madhya Pradesh"),
 }
+
+LUNAR_RULES = _build_lunar_rules()
 
 # ═════════════════════════════════════════════════════════════════════════════
 # SOLAR RULES — fixed by solar/Gregorian calendar, correct to be static
@@ -496,9 +610,19 @@ def _solar_rules():
         # ── Maharashtra deep local ─────────────────────────────────────────────
         ((1,  6),  _s("Feast of Three Kings (Goa/MH Christians)","Goa","Maharashtra")),
         ((2, 20),  _s("Goa Carnival","Goa")),
+        ((2,  1),  _s("Kala Ghoda Arts Festival (Mumbai)","Maharashtra")),
+        ((3, 15),  _s("Ellora-Ajanta Festival","Maharashtra")),
+        ((5, 15),  _s("Nashik Kumbh Mela (Simhastha - every 12 yrs approx)","Maharashtra")),
 
         # ── Karnataka deep local ───────────────────────────────────────────────
         ((1, 14),  _s("Sankranti / Ellu Birodhu (Karnataka)","Karnataka")),  # already merged above
+        ((3, 28),  _s("Karaga Festival (Bangalore)","Karnataka")),
+        ((4,  1),  _s("Vairamudi Festival (Melkote)","Karnataka")),
+        ((4, 28),  _s("Basava Jayanti","Karnataka","Andhra Pradesh","Telangana")),
+        ((5,  3),  _s("Hampi Utsav / Vijayanagara Festival","Karnataka")),
+        ((10,14),  _s("Tula Sankramana (Talakaveri)","Karnataka")),
+        ((11, 6),  _s("Kambala (Buffalo Race) season begins","Karnataka")),
+        ((12,22),  _s("Pattadakal Dance Festival","Karnataka")),
 
         # ── Kerala deep local ─────────────────────────────────────────────────
         ((2, 15),  _s("Attukal Pongala (Thiruvananthapuram)","Kerala")),
@@ -557,6 +681,38 @@ def _solar_rules():
 
 SOLAR_RULES = _solar_rules()
 
+# ── Maharashtra deep local (lunar-based, added to LUNAR_RULES via patch) ──────
+# These are lunar festivals specific to Maharashtra not in main LUNAR_RULES
+_MH_LUNAR_PATCH = {
+    # Ashadha Shukla Ekadashi = Ashadhi Ekadashi (already in LUNAR_RULES as (3,10))
+    # Margashirsha Krishna Shashthi = Champa Shashthi (already as (8,5))
+    # Shravana every Tuesday = Mangala Gaur (already as (4,7))
+    # Bhadrapada Shukla Tritiya = Hartalika Teej (already as (5,1))
+    # Bhadrapada Shukla Ashtami/Navami/Dashami = Mahalakshmi (already as (5,8))
+    # Kartik Shukla Ekadashi = Kartiki Wari (already as (7,25))
+    # Additional:
+    # Chaitra Shukla Tritiya = Chaitri Gaur (already as (0,2))
+    # Vaishakha Shukla Tritiya = Akshaya Tritiya (already as (1,2))
+    # Jyeshtha Shukla Purnima = Vat Purnima (already as (2,14))
+    # Shravana Amavasya = Bail Pola (already as (4,29))
+    # Bhadrapada Shukla Chaturthi = Ganesh Chaturthi (already as (5,3))
+    # Ashwin Shukla Purnima = Kojagiri (already as (6,14))
+    # Kartik Krishna Amavasya = Diwali (already as (7,28/29))
+    # Kartik Shukla Pratipada = Padwa (already as (7,15))
+    # Margashirsha Shukla Pratipada = Champa Shashthi begins (already as (8,0))
+}
+
+# ── Karnataka deep local (lunar-based) ───────────────────────────────────────
+_KA_LUNAR_PATCH = {
+    # Chaitra Shukla Pratipada = Ugadi (already as (0,0))
+    # Vaishakha Shukla Tritiya = Akshaya Tritiya (already as (1,2))
+    # Bhadrapada Shukla Chaturthi = Ganesha Habba (already as (5,3))
+    # Bhadrapada Shukla Ashtami = Gowri Habba (already as (5,7) as Radha Ashtami)
+    # Ashwin Shukla Dasami = Mysuru Dasara (already as (6,9))
+    # Kartik Shukla Purnima = Kartik Deepotsava (already as (7,14))
+    # Phalguna Purnima = Holi (already as (11,14))
+}
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # ASTRONOMY ENGINE
@@ -585,11 +741,9 @@ def _compute_panchang(year: int, month: int, day: int) -> dict:
     nakshatra_index = int(moon_sid / (360.0 / 27)) % 27
     yoga_index      = int(((sun_sid + moon_sid) % 360.0) / (360.0 / 27)) % 27
     karana_index    = int(diff / 6.0) % 11
-    # Lunar month = Sun's sidereal zodiac sign (Saura month — used by Kalnirnay)
-    # Aries=Chaitra(0), Taurus=Vaishakha(1), ... Pisces=Phalguna(11)
-    # NOTE: Sun's sign lags traditional lunar month name by 1.
-    # We apply +1 shift here so LUNAR_RULES keys match traditional names.
-    lunar_month_index = (int(sun_sid / 30.0) + 1) % 12
+    # Lunar month key = Sun's sidereal zodiac sign on the day
+    # LUNAR_RULES keys are calibrated to match this directly
+    lunar_month_index = int(sun_sid / 30.0) % 12
 
     from datetime import date as _date
     vara_index = _date(year, month, day).weekday()
@@ -616,9 +770,10 @@ def _collect_state_festivals(p: dict, d) -> dict:
             if name and state in state_map and name not in state_map[state]:
                 state_map[state].append(name)
 
+    # Apply lunar rules for today's tithi
     _apply(LUNAR_RULES, (p["lunar_month_index"], p["tithi_index"]))
 
-    # Nakshatra-based festivals (Onam Thiruvonam = Shravana nakshatra in Bhadrapada)
+    # Nakshatra-based: Onam Thiruvonam = Shravana nakshatra in Bhadrapada month
     if p["lunar_month_index"] == 5 and p["nakshatra_index"] == 21:
         for s in ["Kerala", "Lakshadweep"]:
             if "Onam - Thiruvonam (Main Day)" not in state_map[s]:
