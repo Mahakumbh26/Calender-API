@@ -1,9 +1,9 @@
 """
-app.py - Kalnirnay-style Calendar API
+app.py — Kalnirnay-style Calendar API
 Endpoints:
   GET /calendar?date=YYYY-MM-DD[&state=Maharashtra]
   GET /festivals?year=2026[&state=Maharashtra]
-  GET /states  — list all supported states
+  GET /states
 """
 
 import os
@@ -16,31 +16,23 @@ app = Flask(__name__)
 
 @app.route("/calendar", methods=["GET"])
 def calendar():
-    """GET /calendar?date=YYYY-MM-DD[&state=Maharashtra]"""
     date_str = request.args.get("date")
     state    = request.args.get("state")
-
     if not date_str:
         return jsonify({"error": "Missing required query parameter: date"}), 400
     try:
-        data = get_calendar_data(date_str, state=state)
+        return jsonify(get_calendar_data(date_str, state=state)), 200
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"Internal error: {str(e)}"}), 500
 
-    return jsonify(data), 200
-
 
 @app.route("/festivals", methods=["GET"])
 def festivals():
-    """
-    GET /festivals?year=2026[&state=Maharashtra]
-    Returns all days with festivals for the given year.
-    """
+    """Returns all festival days for a year, optionally filtered by state."""
     year_str = request.args.get("year")
     state    = request.args.get("state")
-
     if not year_str:
         return jsonify({"error": "Missing required query parameter: year"}), 400
     try:
@@ -50,17 +42,13 @@ def festivals():
 
     results = []
     current = date(year, 1, 1)
-    end     = date(year, 12, 31)
-
-    while current <= end:
+    while current <= date(year, 12, 31):
         try:
             data = get_calendar_data(current.strftime("%Y-%m-%d"), state=state)
             if data["festivals_today"]:
                 results.append({
-                    "date":           data["date"],
-                    "lunar_month":    data["lunar_month"],
-                    "tithi":          data["tithi"],
-                    "nakshatra":      data["nakshatra"],
+                    "date":            data["date"],
+                    "panchang":        data["panchang"],
                     "festivals_today": data["festivals_today"],
                     "state_festivals": data["state_festivals"],
                 })
@@ -73,4 +61,9 @@ def festivals():
 
 @app.route("/states", methods=["GET"])
 def states():
-    ""
+    return jsonify({"states": ALL_STATES, "total": len(ALL_STATES)}), 200
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=False)
