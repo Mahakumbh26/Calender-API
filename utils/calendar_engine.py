@@ -1,12 +1,13 @@
 """
-calendar_engine.py
-Kalnirnay-style Panchang engine.
+calendar_engine.py — Kalnirnay-style Panchang engine
 Five angas: Tithi, Vara, Nakshatra, Yoga, Karana
-Festival detection:
-  - Lunar festivals  → computed from (lunar_month, tithi, nakshatra) — dynamic, any year
-  - Solar festivals  → fixed Gregorian date (harvest/solar calendar — correct to be static)
-  - Gazetted         → `holidays` library
-All 36 states/UTs covered with their local festivals.
+
+Festival logic:
+  LUNAR_RULES   → keyed by (lunar_month, tithi), computed dynamically every year
+                  These shift every year — Diwali, Holi, Ganesh Chaturthi, Onam etc.
+  SOLAR_RULES   → keyed by (month, day), genuinely fixed by solar calendar
+                  Sankranti, Pongal, Baisakhi, state formation days etc.
+  No duplicate keys — each (month,day) or (lm,tithi) merges ALL states correctly.
 """
 
 from datetime import datetime
@@ -14,16 +15,15 @@ import math
 import ephem
 import holidays as holidays_lib
 
-# ── Panchang lookup tables ────────────────────────────────────────────────────
+# ── Panchang tables ───────────────────────────────────────────────────────────
 
 NAKSHATRAS = [
-    "Ashwini", "Bharani", "Krittika", "Rohini", "Mrigashira", "Ardra",
-    "Punarvasu", "Pushya", "Ashlesha", "Magha", "Purva Phalguni",
-    "Uttara Phalguni", "Hasta", "Chitra", "Swati", "Vishakha", "Anuradha",
-    "Jyeshtha", "Mula", "Purva Ashadha", "Uttara Ashadha", "Shravana",
-    "Dhanishtha", "Shatabhisha", "Purva Bhadrapada", "Uttara Bhadrapada", "Revati"
+    "Ashwini","Bharani","Krittika","Rohini","Mrigashira","Ardra",
+    "Punarvasu","Pushya","Ashlesha","Magha","Purva Phalguni",
+    "Uttara Phalguni","Hasta","Chitra","Swati","Vishakha","Anuradha",
+    "Jyeshtha","Mula","Purva Ashadha","Uttara Ashadha","Shravana",
+    "Dhanishtha","Shatabhisha","Purva Bhadrapada","Uttara Bhadrapada","Revati"
 ]
-
 TITHI_NAMES = [
     "Pratipada","Dwitiya","Tritiya","Chaturthi","Panchami",
     "Shashthi","Saptami","Ashtami","Navami","Dashami",
@@ -32,24 +32,18 @@ TITHI_NAMES = [
     "Shashthi","Saptami","Ashtami","Navami","Dashami",
     "Ekadashi","Dwadashi","Trayodashi","Chaturdashi","Amavasya"
 ]
-PAKSHA = ["Shukla"]*15 + ["Krishna"]*15
-
-YOGA_NAMES = [
-    "Vishkambha","Priti","Ayushman","Saubhagya","Shobhana",
-    "Atiganda","Sukarma","Dhriti","Shula","Ganda",
-    "Vriddhi","Dhruva","Vyaghata","Harshana","Vajra",
-    "Siddhi","Vyatipata","Variyan","Parigha","Shiva",
-    "Siddha","Sadhya","Shubha","Shukla","Brahma",
-    "Indra","Vaidhriti"
+PAKSHA       = ["Shukla"]*15 + ["Krishna"]*15
+YOGA_NAMES   = [
+    "Vishkambha","Priti","Ayushman","Saubhagya","Shobhana","Atiganda",
+    "Sukarma","Dhriti","Shula","Ganda","Vriddhi","Dhruva","Vyaghata",
+    "Harshana","Vajra","Siddhi","Vyatipata","Variyan","Parigha","Shiva",
+    "Siddha","Sadhya","Shubha","Shukla","Brahma","Indra","Vaidhriti"
 ]
-
 KARANA_NAMES = [
     "Bava","Balava","Kaulava","Taitila","Garaja",
     "Vanija","Vishti","Shakuni","Chatushpada","Naga","Kimstughna"
 ]
-
-VARA_NAMES = ["Somavar","Mangalavar","Budhavar","Guruvar","Shukravar","Shanivar","Ravivar"]
-
+VARA_NAMES        = ["Somavar","Mangalavar","Budhavar","Guruvar","Shukravar","Shanivar","Ravivar"]
 LUNAR_MONTH_NAMES = [
     "Chaitra","Vaishakha","Jyeshtha","Ashadha",
     "Shravana","Bhadrapada","Ashwin","Kartik",
@@ -68,709 +62,512 @@ ALL_STATES = [
     "Chandigarh","Andaman & Nicobar","Lakshadweep","Dadra & Nagar Haveli"
 ]
 
+# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _all(name):
     return {s: name for s in ALL_STATES}
 
-def _states(name, *states):
+def _s(name, *states):
     return {s: name for s in states}
 
-def _merge(*dicts):
+def _m(*dicts):
     out = {}
     for d in dicts:
         out.update(d)
     return out
 
-# ── Lunar festival rules ──────────────────────────────────────────────────────
-# Key: (lunar_month 0-11, tithi 0-29)
+# ═════════════════════════════════════════════════════════════════════════════
+# LUNAR RULES — dynamic, shifts every year, computed from tithi + lunar month
+# Key: (lunar_month_index 0-11, tithi_index 0-29)
 # Value: {state: festival_name}
-# Lunar month index = Sun's sidereal zodiac sign (0=Aries=Chaitra ... 11=Pisces=Phalguna)
+# ═════════════════════════════════════════════════════════════════════════════
 
 LUNAR_RULES = {
 
-    # ════════════════════════════════════════════════════════════════════════
-    # CHAITRA (0) — March/April
-    # ════════════════════════════════════════════════════════════════════════
-    (0, 0): _merge(
-        _states("Gudi Padwa", "Maharashtra","Goa","Dadra & Nagar Haveli"),
-        _states("Ugadi", "Karnataka","Andhra Pradesh","Telangana"),
-        _states("Cheti Chand (Sindhi New Year)", "Rajasthan","Gujarat","Delhi","Madhya Pradesh"),
-        _states("Navreh (Kashmiri New Year)", "Jammu & Kashmir","Ladakh"),
-        _states("Sajibu Nongma Panba (Meitei New Year)", "Manipur"),
-        _states("Chaitra Navratri begins", "Uttar Pradesh","Bihar","Jharkhand",
-                "Uttarakhand","Himachal Pradesh","Haryana","Punjab","Rajasthan",
-                "Madhya Pradesh","Chhattisgarh","Delhi"),
+    # ── CHAITRA (0) ───────────────────────────────────────────────────────────
+    (0, 0): _m(
+        _s("Gudi Padwa", "Maharashtra","Goa","Dadra & Nagar Haveli"),
+        _s("Ugadi", "Karnataka","Andhra Pradesh","Telangana"),
+        _s("Cheti Chand", "Rajasthan","Gujarat","Delhi","Madhya Pradesh","Chandigarh"),
+        _s("Navreh", "Jammu & Kashmir","Ladakh"),
+        _s("Sajibu Nongma Panba", "Manipur"),
+        _s("Chaitra Navratri begins / Ghatasthapana",
+           "Uttar Pradesh","Bihar","Jharkhand","Uttarakhand","Himachal Pradesh",
+           "Haryana","Punjab","Rajasthan","Madhya Pradesh","Chhattisgarh","Delhi"),
     ),
-    (0, 5): _states("Yamuna Chhath", "Uttar Pradesh","Bihar","Delhi","Uttarakhand"),
-    (0, 7): _merge(
-        _states("Chaitra Ashtami / Durga Ashtami", "West Bengal","Odisha","Assam","Tripura"),
-        _states("Sheetala Ashtami", "Uttar Pradesh","Rajasthan","Haryana","Punjab","Delhi"),
+    (0, 2): _s("Chaitri Gaur begins (married women festival)",
+               "Maharashtra","Goa"),
+    (0, 5): _s("Yamuna Chhath","Uttar Pradesh","Bihar","Delhi","Uttarakhand"),
+    (0, 7): _m(
+        _s("Chaitra Ashtami / Annapoorna Ashtami","West Bengal","Odisha","Assam","Tripura"),
+        _s("Sheetala Ashtami","Uttar Pradesh","Rajasthan","Haryana","Punjab","Delhi"),
     ),
     (0, 8): _all("Ram Navami"),
     (0, 13): _all("Mahavir Jayanti"),
-    (0, 14): _merge(
+    (0, 14): _m(
         _all("Hanuman Jayanti"),
-        _states("Chaitra Purnima", "Tamil Nadu","Puducherry","Kerala"),
+        _s("Chaitra Purnima / Panguni Uthiram","Tamil Nadu","Puducherry","Kerala"),
+        _s("Baisakhi Purnima","Punjab","Haryana","Chandigarh"),
     ),
-    (0, 29): _states("Chaitra Amavasya", "Odisha","West Bengal","Assam"),
+    (0, 29): _s("Chaitra Amavasya","Odisha","West Bengal","Assam","Tripura"),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # VAISHAKHA (1) — April/May
-    # ════════════════════════════════════════════════════════════════════════
-    (1, 2): _merge(
+    # ── VAISHAKHA (1) ─────────────────────────────────────────────────────────
+    (1, 2): _m(
         _all("Akshaya Tritiya"),
-        _states("Parashurama Jayanti", "Kerala","Karnataka","Maharashtra","Goa"),
+        _s("Parashurama Jayanti","Kerala","Karnataka","Maharashtra","Goa","Andhra Pradesh","Telangana"),
     ),
-    (1, 5): _states("Shankaracharya Jayanti", "Kerala","Karnataka","Tamil Nadu",
-                    "Andhra Pradesh","Telangana"),
-    (1, 9): _states("Sita Navami", "Uttar Pradesh","Bihar","Jharkhand",
-                    "Madhya Pradesh","Uttarakhand","Rajasthan"),
-    (1, 14): _merge(
+    (1, 5): _s("Shankaracharya Jayanti","Kerala","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana"),
+    (1, 9): _s("Sita Navami","Uttar Pradesh","Bihar","Jharkhand","Madhya Pradesh","Uttarakhand","Rajasthan"),
+    (1, 14): _m(
         _all("Buddha Purnima"),
-        _states("Narasimha Jayanti", "Andhra Pradesh","Telangana","Karnataka","Tamil Nadu"),
-        _states("Vaishakha Purnima", "Odisha","West Bengal"),
+        _s("Narasimha Jayanti","Andhra Pradesh","Telangana","Karnataka","Tamil Nadu"),
+        _s("Vaishakha Purnima","Odisha","West Bengal"),
     ),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # JYESHTHA (2) — May/June
-    # ════════════════════════════════════════════════════════════════════════
-    (2, 4): _states("Skanda Sashti", "Tamil Nadu","Puducherry","Kerala","Karnataka",
-                    "Andhra Pradesh","Telangana"),
-    (2, 9): _states("Ganga Dussehra", "Uttar Pradesh","Uttarakhand","Bihar",
-                    "Jharkhand","Delhi","Madhya Pradesh","Rajasthan"),
-    (2, 10): _merge(
-        _states("Vat Savitri Puja", "Maharashtra","Goa","Gujarat","Bihar",
-                "Jharkhand","Uttar Pradesh","Madhya Pradesh","Rajasthan"),
-        _states("Nirjala Ekadashi", "Uttar Pradesh","Bihar","Rajasthan","Delhi"),
+    # ── JYESHTHA (2) ──────────────────────────────────────────────────────────
+    (2, 4): _s("Skanda Sashti","Tamil Nadu","Puducherry","Kerala","Karnataka","Andhra Pradesh","Telangana"),
+    (2, 9): _s("Ganga Dussehra","Uttar Pradesh","Uttarakhand","Bihar","Jharkhand","Delhi","Madhya Pradesh","Rajasthan"),
+    (2, 10): _m(
+        _s("Vat Savitri Puja","Maharashtra","Goa","Gujarat","Bihar","Jharkhand","Uttar Pradesh","Madhya Pradesh","Rajasthan"),
+        _s("Nirjala Ekadashi","Uttar Pradesh","Bihar","Rajasthan","Delhi","Uttarakhand"),
     ),
-    (2, 14): _states("Vat Purnima", "Maharashtra","Gujarat","Goa"),
+    (2, 14): _s("Vat Purnima","Maharashtra","Gujarat","Goa"),
     (2, 28): _all("Shani Jayanti"),
-    (2, 29): _states("Jyeshtha Amavasya / Shani Amavasya",
-                     "Uttar Pradesh","Bihar","Rajasthan","Madhya Pradesh","Delhi"),
+    (2, 29): _s("Jyeshtha Amavasya","Uttar Pradesh","Bihar","Rajasthan","Madhya Pradesh","Delhi"),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # ASHADHA (3) — June/July
-    # ════════════════════════════════════════════════════════════════════════
-    (3, 1): _merge(
+    # ── ASHADHA (3) ───────────────────────────────────────────────────────────
+    (3, 1): _m(
         _all("Jagannath Rath Yatra"),
-        _states("Rath Yatra (State Holiday)", "Odisha"),
+        _s("Rath Yatra (State Holiday)","Odisha"),
     ),
-    (3, 4): _states("Skanda Sashti", "Tamil Nadu","Puducherry","Andhra Pradesh","Telangana"),
-    (3, 10): _merge(
+    (3, 4): _s("Skanda Sashti","Tamil Nadu","Puducherry","Andhra Pradesh","Telangana"),
+    (3, 10): _m(
         _all("Devshayani Ekadashi"),
-        _states("Ashadhi Ekadashi (Wari)", "Maharashtra","Goa"),
+        _s("Ashadhi Ekadashi / Wari","Maharashtra","Goa"),
     ),
     (3, 14): _all("Guru Purnima"),
-    (3, 29): _states("Ashadha Amavasya / Dakshinayana begins",
-                     "Karnataka","Andhra Pradesh","Telangana","Tamil Nadu","Kerala"),
+    (3, 29): _s("Ashadha Amavasya","Karnataka","Andhra Pradesh","Telangana","Tamil Nadu","Kerala"),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # SHRAVANA (4) — July/August
-    # ════════════════════════════════════════════════════════════════════════
-    (4, 3): _states("Hariyali Teej", "Rajasthan","Uttar Pradesh","Haryana",
-                    "Punjab","Delhi","Madhya Pradesh","Bihar","Uttarakhand","Himachal Pradesh"),
+    # ── SHRAVANA (4) ──────────────────────────────────────────────────────────
+    (4, 0): _s("Shravana Somavar (first Monday of Shravana)",
+               "Maharashtra","Goa","Uttar Pradesh","Bihar","Uttarakhand","Rajasthan"),
+    (4, 3): _s("Hariyali Teej","Rajasthan","Uttar Pradesh","Haryana","Punjab","Delhi",
+               "Madhya Pradesh","Bihar","Uttarakhand","Himachal Pradesh","Chandigarh"),
     (4, 4): _all("Nag Panchami"),
+    (4, 6): _s("Tulsi Shravana Saptami","Maharashtra","Gujarat"),
+    (4, 7): _s("Mangala Gaur (Shravana Tuesday - new brides)","Maharashtra","Goa"),
     (4, 9): _all("Putrada Ekadashi"),
-    (4, 12): _states("Onam - Atham (first day)", "Kerala","Lakshadweep"),
-    (4, 13): _states("Onam - Chithira", "Kerala","Lakshadweep"),
-    (4, 14): _merge(
+    (4, 12): _s("Onam - Atham (Day 1)","Kerala","Lakshadweep"),
+    (4, 13): _s("Onam - Chithira (Day 2)","Kerala","Lakshadweep"),
+    (4, 14): _m(
         _all("Raksha Bandhan"),
-        _states("Narali Purnima (Coconut Festival)", "Maharashtra","Goa"),
-        _states("Avani Avittam (Upakarma)", "Tamil Nadu","Kerala","Puducherry"),
-        _states("Jhulan Purnima / Jhulana Yatra", "West Bengal","Odisha","Assam"),
-        _states("Gamha Purnima", "Odisha"),
-        _states("Shravana Purnima", "Uttar Pradesh","Bihar","Uttarakhand","Rajasthan"),
+        _s("Narali Purnima / Coconut Festival","Maharashtra","Goa"),
+        _s("Avani Avittam / Upakarma","Tamil Nadu","Kerala","Puducherry"),
+        _s("Jhulan Purnima / Jhulana Yatra","West Bengal","Odisha","Assam"),
+        _s("Gamha Purnima","Odisha"),
+        _s("Shravana Purnima","Uttar Pradesh","Bihar","Uttarakhand","Rajasthan"),
     ),
-    (4, 20): _states("Onam - Thiruvonam (Main Day)", "Kerala","Lakshadweep"),
-    (4, 22): _states("Kajari Teej", "Madhya Pradesh","Uttar Pradesh","Bihar","Rajasthan"),
+    (4, 20): _s("Onam - Thiruvonam (Main Day)","Kerala","Lakshadweep"),
+    (4, 22): _s("Kajari Teej","Madhya Pradesh","Uttar Pradesh","Bihar","Rajasthan","Chhattisgarh"),
     (4, 23): _all("Krishna Janmashtami"),
-    (4, 24): _states("Nandotsav", "Uttar Pradesh","Rajasthan","Madhya Pradesh"),
+    (4, 24): _s("Nandotsav","Uttar Pradesh","Rajasthan","Madhya Pradesh"),
+    (4, 29): _s("Bail Pola / Pithori Amavasya","Maharashtra","Chhattisgarh","Madhya Pradesh"),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # BHADRAPADA (5) — August/September
-    # ════════════════════════════════════════════════════════════════════════
-    (5, 3): _merge(
+    # ── BHADRAPADA (5) ────────────────────────────────────────────────────────
+    (5, 1): _s("Hartalika Teej","Maharashtra","Goa","Uttar Pradesh","Bihar","Rajasthan","Madhya Pradesh"),
+    (5, 3): _m(
         _all("Ganesh Chaturthi"),
-        _states("Vinayaka Chaturthi (State Holiday)", "Maharashtra","Goa",
-                "Karnataka","Andhra Pradesh","Telangana","Tamil Nadu","Puducherry"),
+        _s("Vinayaka Chaturthi (State Holiday)","Maharashtra","Goa","Karnataka",
+           "Andhra Pradesh","Telangana","Tamil Nadu","Puducherry"),
     ),
-    (5, 5): _states("Rishi Panchami", "Maharashtra","Gujarat","Rajasthan",
-                    "Uttar Pradesh","Bihar","Madhya Pradesh"),
+    (5, 4): _s("Rishi Panchami","Maharashtra","Gujarat","Rajasthan","Uttar Pradesh","Bihar","Madhya Pradesh"),
+    (5, 5): _s("Surya Shashti / Skanda Sashti","Tamil Nadu","Puducherry","Karnataka"),
     (5, 7): _all("Radha Ashtami"),
-    (5, 10): _states("Khudurukuni Osha", "Odisha"),
-    (5, 11): _states("Onam - Thiruvonam (alternate calc)", "Kerala"),
-    (5, 13): _merge(
+    (5, 8): _s("Mahalakshmi Puja (3-day)","Maharashtra","Goa"),
+    (5, 10): _s("Khudurukuni Osha","Odisha"),
+    (5, 11): _s("Onam - Thiruvonam (Main Day)","Kerala","Lakshadweep"),
+    (5, 12): _s("Onam - Thiruvonam (Main Day)","Kerala","Lakshadweep"),
+    (5, 13): _m(
         _all("Anant Chaturdashi"),
-        _states("Ganesh Visarjan (State Holiday)", "Maharashtra","Goa"),
+        _s("Ganesh Visarjan (State Holiday)","Maharashtra","Goa"),
     ),
-    (5, 14): _states("Bhadrapada Purnima / Purnima Shraddha", "Odisha","West Bengal","Assam"),
+    (5, 14): _s("Bhadrapada Purnima","Odisha","West Bengal","Assam","Tripura"),
     (5, 24): _all("Indira Ekadashi"),
-    (5, 29): _merge(
+    (5, 29): _m(
         _all("Mahalaya Amavasya / Pitru Paksha ends"),
-        _states("Mahalaya (Durga Puja begins)", "West Bengal","Assam","Odisha","Tripura"),
+        _s("Mahalaya / Durga Puja begins","West Bengal","Assam","Odisha","Tripura"),
     ),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # ASHWIN (6) — September/October
-    # ════════════════════════════════════════════════════════════════════════
+    # ── ASHWIN (6) ────────────────────────────────────────────────────────────
     (6, 0): _all("Shardiya Navratri begins / Ghatasthapana"),
-    (6, 5): _merge(
-        _states("Saraswati Puja / Saraswati Avahan", "West Bengal","Odisha","Assam",
-                "Tripura","Bihar","Jharkhand"),
-        _states("Ayudha Puja", "Karnataka","Tamil Nadu","Andhra Pradesh",
-                "Telangana","Kerala","Puducherry"),
-        _states("Lalita Sashti", "Maharashtra","Gujarat"),
+    (6, 5): _m(
+        _s("Saraswati Puja / Saraswati Avahan","West Bengal","Odisha","Assam","Tripura","Bihar","Jharkhand"),
+        _s("Ayudha Puja","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana","Kerala","Puducherry"),
+        _s("Lalita Sashti","Maharashtra","Gujarat"),
     ),
-    (6, 6): _states("Saraswati Puja (main day)", "West Bengal","Odisha","Assam","Tripura"),
-    (6, 7): _merge(
+    (6, 6): _s("Saraswati Puja (main day)","West Bengal","Odisha","Assam","Tripura"),
+    (6, 7): _m(
         _all("Durga Ashtami / Maha Ashtami"),
-        _states("Sandhi Puja", "West Bengal","Assam","Tripura"),
+        _s("Sandhi Puja","West Bengal","Assam","Tripura"),
     ),
-    (6, 8): _merge(
+    (6, 8): _m(
         _all("Maha Navami"),
-        _states("Ayudha Puja (State Holiday)", "Karnataka","Tamil Nadu",
-                "Andhra Pradesh","Telangana","Kerala","Puducherry"),
-        _states("Navami Homa", "West Bengal","Odisha"),
+        _s("Ayudha Puja (State Holiday)","Karnataka","Tamil Nadu","Andhra Pradesh","Telangana","Kerala","Puducherry"),
+        _s("Navami Homa","West Bengal","Odisha"),
     ),
-    (6, 9): _merge(
+    (6, 9): _m(
         _all("Dussehra / Vijayadashami"),
-        _states("Mysuru Dasara (State Festival)", "Karnataka"),
-        _states("Kullu Dussehra", "Himachal Pradesh"),
-        _states("Bastar Dussehra", "Chhattisgarh"),
-        _states("Durga Puja Dashami / Sindur Khela", "West Bengal","Assam","Tripura"),
-        _states("Kota Dussehra", "Rajasthan"),
+        _s("Mysuru Dasara (State Festival)","Karnataka"),
+        _s("Kullu Dussehra","Himachal Pradesh"),
+        _s("Bastar Dussehra","Chhattisgarh"),
+        _s("Durga Puja Dashami / Sindur Khela","West Bengal","Assam","Tripura"),
+        _s("Kota Dussehra","Rajasthan"),
     ),
     (6, 10): _all("Papankusha Ekadashi"),
-    (6, 14): _merge(
+    (6, 14): _m(
         _all("Sharad Purnima / Kojagiri Purnima"),
-        _states("Lakshmi Puja", "West Bengal","Odisha","Assam","Tripura"),
-        _states("Valmiki Jayanti", "Punjab","Haryana","Delhi","Uttar Pradesh",
-                "Himachal Pradesh","Chandigarh"),
-        _states("Kaumudi Mahotsav", "Uttar Pradesh","Bihar"),
+        _s("Lakshmi Puja","West Bengal","Odisha","Assam","Tripura"),
+        _s("Valmiki Jayanti","Punjab","Haryana","Delhi","Uttar Pradesh","Himachal Pradesh","Chandigarh"),
+        _s("Kaumudi Mahotsav","Uttar Pradesh","Bihar"),
     ),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # KARTIK (7) — October/November
-    # ════════════════════════════════════════════════════════════════════════
-    (7, 3): _states("Karva Chauth", "Rajasthan","Uttar Pradesh","Punjab","Haryana",
-                    "Delhi","Himachal Pradesh","Madhya Pradesh","Uttarakhand",
-                    "Bihar","Jammu & Kashmir","Chandigarh"),
-    (7, 7): _states("Ahoi Ashtami", "Uttar Pradesh","Rajasthan","Haryana",
-                    "Punjab","Delhi","Madhya Pradesh","Himachal Pradesh"),
-    (7, 10): _states("Govatsa Dwadashi / Vasu Baras", "Maharashtra","Gujarat","Goa"),
-    (7, 12): _merge(
+    # ── KARTIK (7) ────────────────────────────────────────────────────────────
+    (7, 3): _s("Karva Chauth","Rajasthan","Uttar Pradesh","Punjab","Haryana","Delhi",
+               "Himachal Pradesh","Madhya Pradesh","Uttarakhand","Bihar","Jammu & Kashmir","Chandigarh"),
+    (7, 7): _s("Ahoi Ashtami","Uttar Pradesh","Rajasthan","Haryana","Punjab","Delhi","Madhya Pradesh","Himachal Pradesh"),
+    (7, 10): _s("Govatsa Dwadashi / Vasu Baras","Maharashtra","Gujarat","Goa"),
+    (7, 12): _m(
         _all("Dhanteras / Dhanvantari Jayanti"),
-        _states("Yama Deepam", "Tamil Nadu","Andhra Pradesh","Telangana","Karnataka"),
+        _s("Yama Deepam","Tamil Nadu","Andhra Pradesh","Telangana","Karnataka"),
     ),
-    (7, 13): _merge(
+    (7, 13): _m(
         _all("Narak Chaturdashi / Choti Diwali"),
-        _states("Kali Puja", "West Bengal","Assam","Odisha","Tripura"),
-        _states("Hanuman Puja", "Uttar Pradesh","Bihar","Rajasthan"),
+        _s("Kali Puja","West Bengal","Assam","Odisha","Tripura"),
+        _s("Hanuman Puja","Uttar Pradesh","Bihar","Rajasthan"),
     ),
-    (7, 29): _merge(
+    # Diwali = Kartik Krishna Amavasya (tithi 29) in most years
+    # Some years it falls on Chaturdashi (tithi 28) — cover both
+    (7, 28): _m(
         _all("Diwali / Lakshmi Puja"),
-        _states("Kali Puja (State Holiday)", "West Bengal","Assam","Odisha","Tripura"),
-        _states("Naraka Chaturdashi (South)", "Tamil Nadu","Karnataka",
-                "Andhra Pradesh","Telangana","Kerala","Puducherry"),
+        _s("Kali Puja (State Holiday)","West Bengal","Assam","Odisha","Tripura"),
+        _s("Naraka Chaturdashi (South)","Tamil Nadu","Karnataka","Andhra Pradesh","Telangana","Kerala","Puducherry"),
     ),
-    (7, 15): _merge(
+    (7, 29): _m(
+        _all("Diwali / Lakshmi Puja"),
+        _s("Kali Puja (State Holiday)","West Bengal","Assam","Odisha","Tripura"),
+        _s("Naraka Chaturdashi (South)","Tamil Nadu","Karnataka","Andhra Pradesh","Telangana","Kerala","Puducherry"),
+    ),
+    (7, 15): _m(
         _all("Govardhan Puja / Annakut"),
-        _states("Padwa / Bali Pratipada", "Maharashtra","Goa"),
-        _states("Bali Pratipada", "Karnataka","Andhra Pradesh","Telangana"),
-        _states("Gujarati New Year", "Gujarat"),
+        _s("Padwa / Bali Pratipada","Maharashtra","Goa"),
+        _s("Bali Pratipada","Karnataka","Andhra Pradesh","Telangana"),
+        _s("Gujarati New Year / Bestu Varas","Gujarat"),
     ),
     (7, 16): _all("Bhai Dooj / Bhau Beej / Yama Dwitiya"),
-    (7, 19): _states("Chhath Puja - Nahay Khay",
-                     "Bihar","Jharkhand","Uttar Pradesh","Delhi",
-                     "West Bengal","Assam","Uttarakhand"),
-    (7, 20): _states("Chhath Puja - Kharna",
-                     "Bihar","Jharkhand","Uttar Pradesh","Delhi",
-                     "West Bengal","Assam","Uttarakhand"),
-    (7, 21): _states("Chhath Puja - Sandhya Arghya (Sunset)",
-                     "Bihar","Jharkhand","Uttar Pradesh","Delhi",
-                     "West Bengal","Assam","Uttarakhand"),
-    (7, 22): _states("Chhath Puja - Usha Arghya (Sunrise)",
-                     "Bihar","Jharkhand","Uttar Pradesh","Delhi",
-                     "West Bengal","Assam","Uttarakhand"),
-    (7, 25): _merge(
+    (7, 19): _s("Chhath Puja - Nahay Khay","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"),
+    (7, 20): _s("Chhath Puja - Kharna","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"),
+    (7, 21): _s("Chhath Puja - Sandhya Arghya","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"),
+    (7, 22): _s("Chhath Puja - Usha Arghya","Bihar","Jharkhand","Uttar Pradesh","Delhi","West Bengal","Assam","Uttarakhand"),
+    (7, 25): _m(
         _all("Dev Uthani Ekadashi / Tulsi Vivah"),
-        _states("Kartik Ekadashi (Wari)", "Maharashtra","Goa"),
+        _s("Kartik Ekadashi / Wari","Maharashtra","Goa"),
     ),
-    (7, 14): _merge(
+    (7, 14): _m(
         _all("Kartik Purnima / Dev Deepawali"),
-        _states("Guru Nanak Jayanti", "Punjab","Haryana","Delhi","Himachal Pradesh",
-                "Uttarakhand","Chandigarh","Jammu & Kashmir"),
-        _states("Pushkar Fair", "Rajasthan"),
-        _states("Tripuri Purnima", "Tripura"),
-        _states("Kartik Purnima Snan (Ganga)", "Uttar Pradesh","Bihar","Uttarakhand"),
+        _s("Guru Nanak Jayanti","Punjab","Haryana","Delhi","Himachal Pradesh","Uttarakhand","Chandigarh","Jammu & Kashmir"),
+        _s("Pushkar Fair","Rajasthan"),
+        _s("Tripuri Purnima","Tripura"),
+        _s("Dev Deepawali (Varanasi)","Uttar Pradesh","Bihar","Uttarakhand"),
     ),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # MARGASHIRSHA (8) — November/December
-    # ════════════════════════════════════════════════════════════════════════
-    (8, 4): _states("Vivah Panchami (Ram-Sita marriage)", "Uttar Pradesh","Bihar",
-                    "Madhya Pradesh","Rajasthan","Uttarakhand","Delhi"),
+    # ── MARGASHIRSHA (8) ──────────────────────────────────────────────────────
+    (8, 0): _s("Champa Shashthi / Khandoba Festival begins","Maharashtra","Goa"),
+    (8, 4): _s("Vivah Panchami","Uttar Pradesh","Bihar","Madhya Pradesh","Rajasthan","Uttarakhand","Delhi"),
+    (8, 5): _s("Champa Shashthi / Khandoba Festival (main day)","Maharashtra","Goa"),
     (8, 10): _all("Mokshada Ekadashi / Gita Jayanti"),
-    (8, 14): _states("Dattatreya Jayanti", "Maharashtra","Karnataka","Goa",
-                     "Andhra Pradesh","Telangana","Gujarat"),
-    (8, 29): _states("Margashirsha Amavasya", "Maharashtra","Karnataka","Andhra Pradesh"),
+    (8, 14): _s("Dattatreya Jayanti","Maharashtra","Karnataka","Goa","Andhra Pradesh","Telangana","Gujarat"),
+    (8, 29): _s("Margashirsha Amavasya","Maharashtra","Karnataka","Andhra Pradesh","Telangana"),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # PAUSH (9) — December/January
-    # ════════════════════════════════════════════════════════════════════════
+    # ── PAUSH (9) ─────────────────────────────────────────────────────────────
     (9, 5): _all("Saphala Ekadashi"),
     (9, 10): _all("Paush Putrada Ekadashi"),
-    (9, 14): _merge(
+    (9, 14): _m(
         _all("Paush Purnima"),
-        _states("Shakambhari Purnima", "Rajasthan","Uttar Pradesh","Madhya Pradesh"),
-        _states("Gangasagar Mela", "West Bengal"),
+        _s("Shakambhari Purnima","Rajasthan","Uttar Pradesh","Madhya Pradesh"),
+        _s("Gangasagar Mela","West Bengal"),
     ),
     (9, 28): _all("Masik Shivratri"),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # MAGHA (10) — January/February
-    # ════════════════════════════════════════════════════════════════════════
-    (10, 4): _merge(
+    # ── MAGHA (10) ────────────────────────────────────────────────────────────
+    (10, 4): _m(
         _all("Vasant Panchami"),
-        _states("Saraswati Puja (State Holiday)", "West Bengal","Odisha","Assam",
-                "Bihar","Jharkhand","Tripura"),
-        _states("Shri Panchami", "West Bengal","Odisha"),
+        _s("Saraswati Puja (State Holiday)","West Bengal","Odisha","Assam","Bihar","Jharkhand","Tripura"),
+        _s("Shri Panchami","West Bengal","Odisha"),
     ),
     (10, 9): _all("Jaya Ekadashi"),
-    (10, 14): _merge(
+    (10, 14): _m(
         _all("Maghi Purnima"),
-        _states("Magha Mela (Prayagraj)", "Uttar Pradesh","Uttarakhand"),
-        _states("Maghi (State Holiday)", "Punjab","Haryana","Chandigarh"),
-        _states("Thaipusam", "Tamil Nadu","Kerala","Puducherry"),
+        _s("Magha Mela (Prayagraj)","Uttar Pradesh","Uttarakhand"),
+        _s("Maghi (State Holiday)","Punjab","Haryana","Chandigarh"),
+        _s("Thaipusam","Tamil Nadu","Kerala","Puducherry"),
     ),
     (10, 28): _all("Maha Shivratri"),
 
-    # ════════════════════════════════════════════════════════════════════════
-    # PHALGUNA (11) — February/March
-    # ════════════════════════════════════════════════════════════════════════
-    (11, 4): _states("Rang Panchami", "Maharashtra","Madhya Pradesh",
-                     "Rajasthan","Gujarat","Chhattisgarh"),
+    # ── PHALGUNA (11) ─────────────────────────────────────────────────────────
+    (11, 4): _s("Rang Panchami","Maharashtra","Madhya Pradesh","Rajasthan","Gujarat","Chhattisgarh"),
     (11, 9): _all("Amalaki Ekadashi"),
-    (11, 13): _merge(
+    (11, 13): _m(
         _all("Holika Dahan"),
-        _states("Shimga (Holi eve)", "Maharashtra","Goa"),
+        _s("Shimga (Holi eve)","Maharashtra","Goa"),
     ),
-    (11, 14): _merge(
+    (11, 14): _m(
         _all("Holi"),
-        _states("Dol Jatra / Dol Purnima", "West Bengal","Odisha","Assam","Tripura"),
-        _states("Shigmo", "Goa"),
-        _states("Yaosang", "Manipur"),
-        _states("Phakuwa", "Assam"),
+        _s("Dol Jatra / Dol Purnima","West Bengal","Odisha","Assam","Tripura"),
+        _s("Shigmo","Goa"),
+        _s("Yaosang","Manipur"),
+        _s("Phakuwa","Assam"),
     ),
-    (11, 15): _states("Dhuleti / Rangwali Holi",
-                      "Gujarat","Rajasthan","Madhya Pradesh",
-                      "Uttar Pradesh","Bihar","Chhattisgarh"),
-    (11, 29): _states("Phalguna Amavasya / Shani Amavasya",
-                      "Rajasthan","Uttar Pradesh","Madhya Pradesh"),
+    (11, 15): _s("Dhuleti / Rangwali Holi","Gujarat","Rajasthan","Madhya Pradesh","Uttar Pradesh","Bihar","Chhattisgarh"),
+    (11, 29): _s("Phalguna Amavasya","Rajasthan","Uttar Pradesh","Madhya Pradesh"),
 }
 
-# ── Solar / harvest / state-formation festivals ───────────────────────────────
-# Fixed by Gregorian/solar calendar — static is genuinely correct for these.
+# ═════════════════════════════════════════════════════════════════════════════
+# SOLAR RULES — fixed by solar/Gregorian calendar, correct to be static
+# Key: (month, day)
+# Value: {state: festival_name}
+# IMPORTANT: No duplicate keys — each date has ONE merged dict for all states
+# ═════════════════════════════════════════════════════════════════════════════
 
-SOLAR_RULES = {
-    (1, 1):   _all("New Year's Day"),
-    (1, 14):  _merge(
-        _all("Makar Sankranti"),
-        _states("Pongal", "Tamil Nadu","Puducherry"),
-        _states("Lohri", "Punjab","Haryana","Himachal Pradesh","Delhi","Chandigarh","Jammu & Kashmir"),
-        _states("Uttarayan / Kite Festival", "Gujarat","Rajasthan"),
-        _states("Magh Bihu / Bhogali Bihu", "Assam"),
-        _states("Khichdi Parva", "Uttar Pradesh","Bihar","Jharkhand","Uttarakhand"),
-        _states("Makara Vilakku", "Kerala","Lakshadweep"),
-        _states("Tusu Puja", "West Bengal","Jharkhand","Odisha"),
-    ),
-    (1, 15):  _states("Thiruvalluvar Day", "Tamil Nadu","Puducherry"),
-    (1, 16):  _states("Mattu Pongal / Uzhavar Thirunal", "Tamil Nadu","Puducherry"),
-    (1, 23):  _states("Netaji Subhash Chandra Bose Jayanti", "West Bengal","Odisha","Assam","Tripura"),
-    (1, 26):  _all("Republic Day"),
-    (2, 19):  _states("Chhatrapati Shivaji Maharaj Jayanti", "Maharashtra","Goa","Dadra & Nagar Haveli"),
-    (3, 22):  _states("Bihar Diwas", "Bihar","Jharkhand"),
-    (4, 5):   _states("Bahu Beej / Gangaur", "Rajasthan","Madhya Pradesh","Gujarat"),
-    (4, 14):  _merge(
-        _all("Dr. Ambedkar Jayanti"),
-        _states("Baisakhi / Vaisakhi", "Punjab","Haryana","Himachal Pradesh","Delhi","Chandigarh","Uttarakhand"),
-        _states("Puthandu / Tamil New Year", "Tamil Nadu","Puducherry"),
-        _states("Vishu", "Kerala","Lakshadweep"),
-        _states("Bohag Bihu / Rongali Bihu", "Assam"),
-        _states("Pohela Boishakh / Bengali New Year", "West Bengal","Tripura","Assam"),
-        _states("Himachal Day", "Himachal Pradesh"),
-    ),
-    (4, 15):  _states("Himachal Pradesh Foundation Day", "Himachal Pradesh"),
-    (5, 1):   _merge(
-        _all("International Labour Day"),
-        _states("Maharashtra Day", "Maharashtra","Goa","Dadra & Nagar Haveli"),
-        _states("Gujarat Day", "Gujarat"),
-    ),
-    (5, 16):  _states("Sikkim Statehood Day", "Sikkim"),
-    (6, 1):   _states("Telangana Formation Day", "Telangana"),
-    (7, 17):  _states("Kharchi Puja", "Tripura"),
-    (8, 15):  _all("Independence Day"),
-    (8, 26):  _states("Ker Puja", "Tripura"),
-    (9, 5):   _all("Teachers Day"),
-    (10, 2):  _all("Gandhi Jayanti"),
-    (10, 24): _states("Jammu & Kashmir Accession Day", "Jammu & Kashmir","Ladakh"),
-    (11, 1):  _merge(
-        _states("Karnataka Rajyotsava", "Karnataka"),
-        _states("Haryana Day", "Haryana","Chandigarh"),
-        _states("Punjab Day", "Punjab","Chandigarh"),
-        _states("MP Foundation Day", "Madhya Pradesh","Chhattisgarh"),
-        _states("Kerala Piravi", "Kerala","Lakshadweep"),
-    ),
-    (11, 9):  _states("Uttarakhand Foundation Day", "Uttarakhand"),
-    (11, 15): _merge(
-        _states("Jharkhand Foundation Day", "Jharkhand"),
-        _states("Birsa Munda Jayanti", "Jharkhand","Odisha","West Bengal","Chhattisgarh"),
-    ),
-    (11, 19): _states("Hornbill Festival begins", "Nagaland"),
-    (12, 1):  _states("Nagaland Statehood Day", "Nagaland"),
-    (12, 2):  _states("Mizoram Statehood Day", "Mizoram"),
-    (12, 19): _states("Goa Liberation Day", "Goa","Dadra & Nagar Haveli"),
-    (12, 25): _all("Christmas"),
-}
+def _solar_rules():
+    """Build solar rules as a list of (key, state_dict) then merge per key."""
+    entries = [
 
-# ── Tribal / regional festivals (fixed by their own solar/harvest calendar) ───
+        # ── National ──────────────────────────────────────────────────────────
+        ((1,  1),  _all("New Year's Day")),
+        ((1, 12),  _s("Swami Vivekananda Jayanti","West Bengal","Assam","Odisha","Tripura","Andaman & Nicobar")),
+        ((1, 23),  _s("Netaji Subhash Chandra Bose Jayanti","West Bengal","Odisha","Assam","Tripura")),
+        ((1, 26),  _all("Republic Day")),
+        ((2, 19),  _s("Chhatrapati Shivaji Maharaj Jayanti","Maharashtra","Goa","Dadra & Nagar Haveli")),
+        ((3, 23),  _s("Shaheed Diwas (Bhagat Singh)","Punjab","Haryana","Delhi","Chandigarh","Uttar Pradesh")),
+        ((4, 14),  _all("Dr. Ambedkar Jayanti")),
+        ((5,  1),  _all("International Labour Day")),
+        ((8, 15),  _all("Independence Day")),
+        ((9,  5),  _all("Teachers Day")),
+        ((10, 2),  _all("Gandhi Jayanti")),
+        ((12,25),  _all("Christmas")),
 
-TRIBAL_SOLAR_RULES = {
-    # Arunachal Pradesh tribal festivals (approximate Gregorian dates)
-    (1, 5):   _states("Losar (Monpa New Year)", "Arunachal Pradesh","Sikkim","Ladakh"),
-    (2, 5):   _states("Nyokum Yullo (Nishi tribe)", "Arunachal Pradesh"),
-    (3, 5):   _states("Mopin (Adi tribe)", "Arunachal Pradesh"),
-    (4, 1):   _states("Ali-Aye Ligang (Mishing tribe)", "Arunachal Pradesh","Assam"),
-    (7, 4):   _states("Dree Festival (Apatani tribe)", "Arunachal Pradesh"),
-    (9, 1):   _states("Solung (Adi tribe)", "Arunachal Pradesh"),
-    # Assam
-    (1, 31):  _states("Me-Dam-Me-Phi (Ahom)", "Assam"),
-    (4, 13):  _states("Bohag Bihu / Rongali Bihu (State Holiday)", "Assam"),
-    (10, 18): _states("Kati Bihu / Kongali Bihu", "Assam"),
-    # Meghalaya
-    (11, 15): _states("Ka Pomblang Nongkrem (Khasi)", "Meghalaya"),
-    (11, 20): _states("Wangala (Garo harvest festival)", "Meghalaya"),
-    # Nagaland
-    (5, 1):   _states("Moatsu Festival (Ao Naga)", "Nagaland"),
-    (12, 1):  _states("Hornbill Festival (State Holiday)", "Nagaland"),
-    # Manipur
-    (11, 1):  _states("Chavang Kut (Kuki-Zo)", "Manipur"),
-    # Mizoram
-    (3, 1):   _states("Chapchar Kut (Mizo)", "Mizoram"),
-    (9, 20):  _states("Mim Kut (Mizo)", "Mizoram"),
-    (12, 31): _states("Pawl Kut (Mizo)", "Mizoram"),
-    # Sikkim
-    (5, 9):   _states("Saga Dawa (Buddha Purnima - Sikkim)", "Sikkim"),
-    (9, 22):  _states("Pang Lhabsol", "Sikkim"),
-    (12, 27): _states("Losoong / Namsoong (Sikkimese New Year)", "Sikkim"),
-    # Rajasthan
-    (3, 18):  _states("Gangaur Festival", "Rajasthan","Madhya Pradesh","Gujarat"),
-    (2, 1):   _states("Bikaner Camel Festival", "Rajasthan"),
-    (10, 15): _states("Pushkar Camel Fair begins", "Rajasthan"),
-    # Odisha
-    (8, 20):  _states("Nuakhai (harvest festival)", "Odisha","Chhattisgarh"),
-    # Kerala
-    (8, 29):  _states("Onam (State Holiday - Thiruvonam)", "Kerala","Lakshadweep"),
-    (4, 10):  _states("Thrissur Pooram", "Kerala"),
-    # Tamil Nadu
-    (1, 13):  _states("Bhogi Pongal", "Tamil Nadu","Puducherry","Andhra Pradesh","Telangana"),
-    (1, 17):  _states("Kannum Pongal", "Tamil Nadu","Puducherry"),
-    (1, 18):  _states("Jallikattu (Alanganallur)", "Tamil Nadu"),
-    # Gujarat
-    (3, 28):  _states("Chitra Vichitra Fair", "Gujarat"),
-    (9, 10):  _states("Tarnetar Fair", "Gujarat"),
-    # Himachal Pradesh
-    (10, 2):  _states("Kullu Dussehra begins", "Himachal Pradesh"),
-    # Uttarakhand
-    (1, 14):  _states("Uttarayani Mela (Bageshwar)", "Uttarakhand"),
-    # West Bengal
-    (4, 15):  _states("Pohela Boishakh (State Holiday)", "West Bengal","Tripura"),
-    (5, 9):   _states("Rabindra Jayanti", "West Bengal","Tripura","Assam"),
-    # Goa
-    (2, 20):  _states("Goa Carnival", "Goa"),
-    (6, 24):  _states("Sao Joao (Feast of St John)", "Goa"),
-    (12, 3):  _states("Feast of St Francis Xavier", "Goa"),
-    (12, 8):  _states("Feast of Immaculate Conception", "Goa"),
-}
+        # ── Makar Sankranti / Jan 14 — solar, genuinely fixed ─────────────────
+        ((1, 13),  _s("Bhogi Pongal","Tamil Nadu","Puducherry","Andhra Pradesh","Telangana")),
+        ((1, 14),  _m(
+            _all("Makar Sankranti"),
+            _s("Thai Pongal","Tamil Nadu","Puducherry"),
+            _s("Lohri","Punjab","Haryana","Himachal Pradesh","Delhi","Chandigarh","Jammu & Kashmir"),
+            _s("Uttarayan / Kite Festival","Gujarat","Rajasthan"),
+            _s("Magh Bihu / Bhogali Bihu","Assam"),
+            _s("Khichdi Parva","Uttar Pradesh","Bihar","Jharkhand","Uttarakhand"),
+            _s("Makara Vilakku (Sabarimala)","Kerala","Lakshadweep"),
+            _s("Tusu Puja / Makar Parab","West Bengal","Jharkhand","Odisha"),
+            _s("Uttarayani Mela (Bageshwar)","Uttarakhand"),
+            _s("Sankranti / Ellu Birodhu","Karnataka"),
+            _s("Til-Gul Sankranti","Maharashtra","Goa"),
+            _s("Maghi (Muktsar Fair)","Punjab"),
+        )),
+        ((1, 15),  _m(
+            _s("Thiruvalluvar Day","Tamil Nadu","Puducherry"),
+            _s("Magh Bihu (State Holiday)","Assam"),
+        )),
+        ((1, 16),  _s("Mattu Pongal / Uzhavar Thirunal","Tamil Nadu","Puducherry")),
+        ((1, 17),  _s("Kannum Pongal","Tamil Nadu","Puducherry")),
+        ((1, 18),  _m(
+            _s("Jallikattu","Tamil Nadu"),
+            _s("Lui-Ngai-Ni (Naga New Year)","Nagaland","Manipur"),
+        )),
+        ((1, 31),  _s("Me-Dam-Me-Phi (Ahom)","Assam")),
 
-# ── State-specific LOCAL festivals (solar/fixed calendar) ────────────────────
-# These are unique local festivals per state not covered above.
-# Format: (month, day): {state: festival_name}
+        # ── February ──────────────────────────────────────────────────────────
+        ((2,  1),  _s("Surajkund Craft Mela","Haryana","Delhi")),
+        ((2, 19),  _s("Shivaji Jayanti (State Holiday)","Maharashtra","Goa")),
 
-STATE_LOCAL_RULES = {
+        # ── March ─────────────────────────────────────────────────────────────
+        ((3,  1),  _s("Chapchar Kut (State Holiday)","Mizoram")),
+        ((3, 18),  _s("Gangaur","Rajasthan","Madhya Pradesh","Gujarat")),
+        ((3, 22),  _s("Bihar Diwas","Bihar","Jharkhand")),
+        ((3, 30),  _s("Rajasthan Day","Rajasthan")),
 
-    # ── Andhra Pradesh ────────────────────────────────────────────────────────
-    (1, 13):  _states("Bhogi (AP)", "Andhra Pradesh","Telangana"),
-    (1, 15):  _states("Kanuma", "Andhra Pradesh","Telangana"),
-    (1, 16):  _states("Mukkanuma", "Andhra Pradesh"),
-    (3, 30):  _states("Sri Rama Navami (AP State Holiday)", "Andhra Pradesh","Telangana"),
-    (9, 1):   _states("Vinayaka Chavithi (AP State Holiday)", "Andhra Pradesh","Telangana"),
-    (10, 22): _states("Nagula Chavithi", "Andhra Pradesh","Telangana"),
-    (11, 8):  _states("Karthika Purnima (AP)", "Andhra Pradesh","Telangana"),
+        # ── April ─────────────────────────────────────────────────────────────
+        ((4,  1),  _s("Utkal Diwas (Odisha Foundation Day)","Odisha")),
+        ((4, 10),  _s("Thrissur Pooram","Kerala")),
+        ((4, 13),  _m(
+            _s("Bohag Bihu / Rongali Bihu (State Holiday)","Assam"),
+            _s("Sajibu Cheiraoba (Meitei New Year)","Manipur"),
+        )),
+        ((4, 14),  _m(
+            _s("Baisakhi / Vaisakhi","Punjab","Haryana","Himachal Pradesh","Delhi","Chandigarh","Uttarakhand"),
+            _s("Puthandu / Tamil New Year","Tamil Nadu","Puducherry"),
+            _s("Vishu","Kerala","Lakshadweep"),
+            _s("Pohela Boishakh / Bengali New Year","West Bengal","Tripura","Assam"),
+            _s("Himachal Day","Himachal Pradesh"),
+            _s("Pana Sankranti / Maha Vishuba Sankranti","Odisha"),
+            _s("Baisakhi (State Holiday)","Punjab","Haryana"),
+        )),
+        ((4, 15),  _m(
+            _s("Himachal Pradesh Foundation Day","Himachal Pradesh"),
+            _s("Pohela Boishakh (State Holiday)","West Bengal","Tripura"),
+        )),
 
-    # ── Arunachal Pradesh ─────────────────────────────────────────────────────
-    (2, 26):  _states("Nyokum (Nishi)", "Arunachal Pradesh"),
-    (4, 5):   _states("Mopin (Adi)", "Arunachal Pradesh"),
-    (7, 5):   _states("Dree (Apatani)", "Arunachal Pradesh"),
-    (9, 5):   _states("Solung (Adi)", "Arunachal Pradesh"),
-    (10, 20): _states("Boori Boot (Nyishi)", "Arunachal Pradesh"),
-    (12, 10): _states("Oriah (Wancho)", "Arunachal Pradesh"),
+        # ── May ───────────────────────────────────────────────────────────────
+        ((5,  1),  _m(
+            _s("Maharashtra Day","Maharashtra","Goa","Dadra & Nagar Haveli"),
+            _s("Gujarat Day","Gujarat"),
+        )),
+        ((5,  9),  _s("Rabindra Jayanti","West Bengal","Tripura","Assam")),
+        ((5, 16),  _s("Sikkim Statehood Day","Sikkim")),
 
-    # ── Assam ─────────────────────────────────────────────────────────────────
-    (1, 14):  _states("Magh Bihu / Bhogali Bihu (State Holiday)", "Assam"),
-    (1, 31):  _states("Me-Dam-Me-Phi", "Assam"),
-    (4, 14):  _states("Rongali Bihu / Bohag Bihu (State Holiday)", "Assam"),
-    (6, 20):  _states("Ambubachi Mela (Kamakhya)", "Assam"),
-    (10, 18): _states("Kongali Bihu / Kati Bihu", "Assam"),
-    (12, 14): _states("Bhogali Bihu prep", "Assam"),
+        # ── June ──────────────────────────────────────────────────────────────
+        ((6,  1),  _s("Telangana Formation Day","Telangana")),
+        ((6, 13),  _s("Feast of St Anthony","Goa")),
+        ((6, 20),  _m(
+            _s("Ambubachi Mela (Kamakhya)","Assam"),
+            _s("Raja Parba","Odisha"),
+        )),
+        ((6, 24),  _s("Sao Joao","Goa")),
 
-    # ── Bihar ─────────────────────────────────────────────────────────────────
-    (3, 22):  _states("Bihar Diwas (State Holiday)", "Bihar"),
-    (10, 15): _states("Sonepur Cattle Fair begins", "Bihar"),
-    (11, 23): _states("Rajgir Mahotsav", "Bihar"),
+        # ── July ──────────────────────────────────────────────────────────────
+        ((7,  1),  _s("Tuluni Festival (Sumi Naga)","Nagaland")),
+        ((7, 17),  _s("Kharchi Puja (State Holiday)","Tripura")),
 
-    # ── Chhattisgarh ──────────────────────────────────────────────────────────
-    (8, 20):  _states("Nuakhai", "Chhattisgarh"),
-    (9, 18):  _states("Pola (Bail Pola)", "Chhattisgarh","Maharashtra"),
-    (11, 1):  _states("Chhattisgarh Rajyotsava", "Chhattisgarh"),
-    (12, 25): _states("Bastar Lokotsav", "Chhattisgarh"),
+        # ── August ────────────────────────────────────────────────────────────
+        ((8,  9),  _s("Karma Puja","Jharkhand","Odisha","Chhattisgarh","West Bengal")),
+        ((8, 15),  _s("Feast of Assumption of Our Lady","Goa")),
+        ((8, 20),  _s("Nuakhai (State Holiday)","Odisha","Chhattisgarh")),
+        ((8, 26),  _s("Ker Puja","Tripura")),
 
-    # ── Goa ───────────────────────────────────────────────────────────────────
-    (1, 6):   _states("Feast of Three Kings", "Goa"),
-    (2, 20):  _states("Goa Carnival (Intruz)", "Goa"),
-    (5, 13):  _states("Feast of Sacred Heart of Jesus", "Goa"),
-    (6, 13):  _states("Feast of St Anthony", "Goa"),
-    (6, 24):  _states("Sao Joao", "Goa"),
-    (8, 15):  _states("Feast of Assumption of Our Lady", "Goa"),
-    (10, 4):  _states("Zatra at Cansaulin", "Goa"),
-    (11, 3):  _states("Diwali (Goa - Narak Chaturdashi focus)", "Goa"),
-    (12, 3):  _states("Feast of St Francis Xavier", "Goa"),
-    (12, 8):  _states("Feast of Immaculate Conception (Panaji)", "Goa"),
-    (12, 19): _states("Goa Liberation Day (State Holiday)", "Goa"),
+        # ── September ─────────────────────────────────────────────────────────
+        ((9,  1),  _m(
+            _s("Bathukamma begins","Telangana"),
+            _s("Sree Narayana Guru Samadhi","Kerala"),
+            _s("Ladakh Festival","Ladakh"),
+        )),
+        ((9, 18),  _s("Pola / Bail Pola","Maharashtra","Chhattisgarh","Madhya Pradesh")),
+        ((9, 20),  _s("Mim Kut","Mizoram")),
+        ((9, 22),  _s("Pang Lhabsol","Sikkim")),
 
-    # ── Gujarat ───────────────────────────────────────────────────────────────
-    (1, 14):  _states("Uttarayan / International Kite Festival", "Gujarat"),
-    (3, 18):  _states("Gangaur", "Gujarat"),
-    (4, 14):  _states("Gujarati New Year (Bestu Varas)", "Gujarat"),
-    (7, 10):  _states("Rann Utsav begins", "Gujarat"),
-    (8, 28):  _states("Tarnetar Fair", "Gujarat"),
-    (9, 10):  _states("Navratri (Garba) begins", "Gujarat"),
-    (10, 28): _states("Shamlaji Fair", "Gujarat"),
-    (11, 14): _states("Vautha Fair", "Gujarat"),
+        # ── October ───────────────────────────────────────────────────────────
+        ((10, 2),  _m(
+            _s("Bathukamma (main day)","Telangana"),
+            _s("Kullu Dussehra begins","Himachal Pradesh"),
+        )),
+        ((10, 15), _s("Pushkar Camel Fair","Rajasthan")),
+        ((10, 18), _s("Kongali Bihu / Kati Bihu","Assam")),
+        ((10, 20), _s("Marwar Festival (Jodhpur)","Rajasthan")),
+        ((10, 24), _s("J&K Accession Day","Jammu & Kashmir","Ladakh")),
 
-    # ── Haryana ───────────────────────────────────────────────────────────────
-    (1, 13):  _states("Lohri (Haryana)", "Haryana"),
-    (2, 1):   _states("Surajkund Craft Mela", "Haryana","Delhi"),
-    (3, 23):  _states("Shaheed Diwas (Bhagat Singh)", "Haryana","Punjab","Delhi","Chandigarh"),
-    (4, 14):  _states("Baisakhi (Haryana State Holiday)", "Haryana"),
-    (11, 1):  _states("Haryana Day (State Holiday)", "Haryana"),
+        # ── November ──────────────────────────────────────────────────────────
+        ((11, 1),  _m(
+            _s("Karnataka Rajyotsava (State Holiday)","Karnataka"),
+            _s("Haryana Day","Haryana","Chandigarh"),
+            _s("Punjab Day","Punjab","Chandigarh"),
+            _s("MP Foundation Day","Madhya Pradesh","Chhattisgarh"),
+            _s("Kerala Piravi","Kerala","Lakshadweep"),
+            _s("Chavang Kut (Kuki-Zo)","Manipur"),
+        )),
+        ((11, 9),  _s("Uttarakhand Foundation Day","Uttarakhand")),
+        ((11, 15), _m(
+            _s("Jharkhand Foundation Day","Jharkhand"),
+            _s("Birsa Munda Jayanti","Jharkhand","Odisha","West Bengal","Chhattisgarh"),
+            _s("Nongkrem Dance Festival (Khasi)","Meghalaya"),
+        )),
+        ((11, 19), _s("Hornbill Festival begins","Nagaland")),
+        ((11, 20), _s("Wangala (100 Drums - Garo)","Meghalaya")),
+        ((11, 28), _s("Ningol Chakouba","Manipur")),
 
-    # ── Himachal Pradesh ──────────────────────────────────────────────────────
-    (1, 14):  _states("Maghi (HP)", "Himachal Pradesh"),
-    (4, 15):  _states("Himachal Day (State Holiday)", "Himachal Pradesh"),
-    (5, 1):   _states("Shoolini Fair (Solan)", "Himachal Pradesh"),
-    (6, 14):  _states("Minjar Fair (Chamba)", "Himachal Pradesh"),
-    (7, 10):  _states("Kullu Dussehra begins", "Himachal Pradesh"),
-    (8, 15):  _states("Lavi Fair (Rampur)", "Himachal Pradesh"),
-    (10, 2):  _states("Kullu Dussehra (State Holiday)", "Himachal Pradesh"),
+        # ── December ──────────────────────────────────────────────────────────
+        ((12, 1),  _m(
+            _s("Nagaland Statehood Day / Hornbill Festival","Nagaland"),
+            _s("International Sand Art Festival (Puri)","Odisha"),
+        )),
+        ((12, 2),  _s("Mizoram Statehood Day","Mizoram")),
+        ((12, 3),  _s("Feast of St Francis Xavier","Goa")),
+        ((12, 8),  _s("Feast of Immaculate Conception","Goa")),
+        ((12, 19), _s("Goa Liberation Day","Goa","Dadra & Nagar Haveli")),
+        ((12, 27), _s("Losoong / Namsoong (Sikkimese New Year)","Sikkim")),
+        ((12, 31), _s("Pawl Kut","Mizoram")),
 
-    # ── Jharkhand ─────────────────────────────────────────────────────────────
-    (1, 14):  _states("Tusu Puja / Makar Parab", "Jharkhand"),
-    (3, 15):  _states("Sarhul (Oraon/Munda)", "Jharkhand"),
-    (8, 9):   _states("Karma Puja", "Jharkhand","Odisha","Chhattisgarh","West Bengal"),
-    (11, 15): _states("Jharkhand Foundation Day (State Holiday)", "Jharkhand"),
+        # ── Maharashtra deep local ─────────────────────────────────────────────
+        ((1,  6),  _s("Feast of Three Kings (Goa/MH Christians)","Goa","Maharashtra")),
+        ((2, 20),  _s("Goa Carnival","Goa")),
 
-    # ── Karnataka ─────────────────────────────────────────────────────────────
-    (1, 14):  _states("Sankranti / Ellu Birodhu", "Karnataka"),
-    (3, 22):  _states("Ugadi (Karnataka State Holiday)", "Karnataka"),
-    (4, 14):  _states("Ambedkar Jayanti (Karnataka)", "Karnataka"),
-    (5, 1):   _states("Karnataka Rajyotsava eve", "Karnataka"),
-    (9, 1):   _states("Gowri Habba", "Karnataka"),
-    (9, 2):   _states("Ganesha Chaturthi (Karnataka State Holiday)", "Karnataka"),
-    (10, 2):  _states("Mysuru Dasara begins", "Karnataka"),
-    (11, 1):  _states("Karnataka Rajyotsava (State Holiday)", "Karnataka"),
-    (12, 22): _states("Pattadakal Dance Festival", "Karnataka"),
+        # ── Karnataka deep local ───────────────────────────────────────────────
+        ((1, 14),  _s("Sankranti / Ellu Birodhu (Karnataka)","Karnataka")),  # already merged above
 
-    # ── Kerala ────────────────────────────────────────────────────────────────
-    (1, 14):  _states("Makara Vilakku (Sabarimala)", "Kerala"),
-    (4, 10):  _states("Thrissur Pooram", "Kerala"),
-    (4, 14):  _states("Vishu (State Holiday)", "Kerala"),
-    (7, 16):  _states("Piravi of Sree Narayana Guru", "Kerala"),
-    (8, 29):  _states("Onam / Thiruvonam (State Holiday)", "Kerala"),
-    (9, 1):   _states("Sree Narayana Guru Samadhi", "Kerala"),
-    (10, 31): _states("Kerala Piravi eve", "Kerala"),
-    (11, 1):  _states("Kerala Piravi (State Holiday)", "Kerala"),
-    (11, 5):  _states("Aranmula Boat Race", "Kerala"),
+        # ── Kerala deep local ─────────────────────────────────────────────────
+        ((2, 15),  _s("Attukal Pongala (Thiruvananthapuram)","Kerala")),
+        ((4, 10),  _s("Thrissur Pooram (State Festival)","Kerala")),
+        ((8, 29),  _s("Onam / Thiruvonam (State Holiday)","Kerala","Lakshadweep")),
+        ((11, 5),  _s("Aranmula Boat Race","Kerala")),
+        ((8, 10),  _s("Nehru Trophy Boat Race (Alappuzha)","Kerala")),
 
-    # ── Madhya Pradesh ────────────────────────────────────────────────────────
-    (1, 26):  _states("Khajuraho Dance Festival", "Madhya Pradesh"),
-    (3, 18):  _states("Gangaur (MP)", "Madhya Pradesh"),
-    (9, 18):  _states("Pola", "Madhya Pradesh"),
-    (11, 1):  _states("MP Foundation Day (State Holiday)", "Madhya Pradesh"),
-    (12, 28): _states("Lokrang Festival (Bhopal)", "Madhya Pradesh"),
+        # ── Arunachal Pradesh tribal ───────────────────────────────────────────
+        ((1,  5),  _s("Losar (Monpa New Year)","Arunachal Pradesh","Sikkim","Ladakh")),
+        ((2, 26),  _s("Nyokum Yullo (Nishi tribe)","Arunachal Pradesh")),
+        ((4,  5),  _s("Mopin (Adi tribe)","Arunachal Pradesh")),
+        ((4,  1),  _s("Ali-Aye Ligang (Mishing tribe)","Arunachal Pradesh","Assam")),
+        ((7,  5),  _s("Dree Festival (Apatani tribe)","Arunachal Pradesh")),
+        ((9,  5),  _s("Solung (Adi tribe)","Arunachal Pradesh")),
+        ((10,20),  _s("Boori Boot (Nyishi tribe)","Arunachal Pradesh")),
+        ((12,10),  _s("Oriah (Wancho tribe)","Arunachal Pradesh")),
 
-    # ── Maharashtra ───────────────────────────────────────────────────────────
-    (1, 14):  _states("Makar Sankranti / Til-Gul", "Maharashtra"),
-    (2, 19):  _states("Shivaji Jayanti (State Holiday)", "Maharashtra"),
-    (4, 14):  _states("Ambedkar Jayanti (State Holiday)", "Maharashtra"),
-    (5, 1):   _states("Maharashtra Day (State Holiday)", "Maharashtra"),
-    (9, 18):  _states("Pola (Bail Pola)", "Maharashtra"),
-    (10, 2):  _states("Gandhi Jayanti (Maharashtra)", "Maharashtra"),
-    (11, 14): _states("Wari (Pandharpur)", "Maharashtra"),
+        # ── Nagaland tribal ───────────────────────────────────────────────────
+        ((5,  1),  _s("Moatsu (Ao Naga)","Nagaland")),
+        ((8, 10),  _s("Sekrenyi (Angami Naga)","Nagaland")),
 
-    # ── Manipur ───────────────────────────────────────────────────────────────
-    (1, 18):  _states("Lui-Ngai-Ni (Naga New Year)", "Manipur","Nagaland"),
-    (4, 13):  _states("Sajibu Cheiraoba (Meitei New Year)", "Manipur"),
-    (5, 28):  _states("Kang (Rath Yatra - Manipur)", "Manipur"),
-    (11, 1):  _states("Chavang Kut", "Manipur"),
-    (11, 28): _states("Ningol Chakouba", "Manipur"),
+        # ── Sikkim ────────────────────────────────────────────────────────────
+        ((5, 16),  _s("Sikkim Statehood Day (State Holiday)","Sikkim")),
+        ((5, 23),  _s("Saga Dawa","Sikkim")),
 
-    # ── Meghalaya ─────────────────────────────────────────────────────────────
-    (1, 5):   _states("Shad Suk Mynsiem (Khasi)", "Meghalaya"),
-    (4, 14):  _states("Shad Suk Mynsiem (Spring Festival)", "Meghalaya"),
-    (11, 15): _states("Nongkrem Dance Festival (Khasi)", "Meghalaya"),
-    (11, 20): _states("Wangala (100 Drums Festival - Garo)", "Meghalaya"),
+        # ── Odisha ────────────────────────────────────────────────────────────
+        ((5,  1),  _s("Chandan Yatra begins","Odisha")),
+        ((10, 1),  _s("Konark Dance Festival","Odisha")),
 
-    # ── Mizoram ───────────────────────────────────────────────────────────────
-    (3, 1):   _states("Chapchar Kut (State Holiday)", "Mizoram"),
-    (9, 20):  _states("Mim Kut", "Mizoram"),
-    (12, 31): _states("Pawl Kut", "Mizoram"),
+        # ── Rajasthan ─────────────────────────────────────────────────────────
+        ((2,  1),  _s("Bikaner Camel Festival","Rajasthan")),
 
-    # ── Nagaland ──────────────────────────────────────────────────────────────
-    (1, 18):  _states("Lui-Ngai-Ni", "Nagaland"),
-    (5, 1):   _states("Moatsu (Ao Naga)", "Nagaland"),
-    (7, 1):   _states("Tuluni (Sumi Naga)", "Nagaland"),
-    (8, 10):  _states("Sekrenyi (Angami Naga)", "Nagaland"),
-    (12, 1):  _states("Nagaland Statehood Day (State Holiday)", "Nagaland"),
-    (12, 1):  _states("Hornbill Festival (State Holiday)", "Nagaland"),
+        # ── Uttarakhand ───────────────────────────────────────────────────────
+        ((3, 22),  _s("Phool Dei (Spring Festival)","Uttarakhand")),
+        ((7, 15),  _s("Harela (Kumaon harvest)","Uttarakhand")),
 
-    # ── Odisha ────────────────────────────────────────────────────────────────
-    (1, 14):  _states("Makar Mela / Makar Sankranti (Odisha)", "Odisha"),
-    (4, 1):   _states("Utkal Diwas (Odisha Foundation Day)", "Odisha"),
-    (4, 14):  _states("Pana Sankranti / Maha Vishuba Sankranti", "Odisha"),
-    (5, 1):   _states("Chandan Yatra begins", "Odisha"),
-    (6, 20):  _states("Raja Parba (Odisha)", "Odisha"),
-    (8, 20):  _states("Nuakhai (State Holiday)", "Odisha"),
-    (10, 1):  _states("Konark Dance Festival", "Odisha"),
-    (12, 1):  _states("International Sand Art Festival (Puri)", "Odisha"),
+        # ── Jammu & Kashmir ───────────────────────────────────────────────────
+        ((6, 15),  _s("Hemis Festival","Ladakh","Jammu & Kashmir")),
 
-    # ── Punjab ────────────────────────────────────────────────────────────────
-    (1, 13):  _states("Lohri (State Holiday)", "Punjab"),
-    (1, 14):  _states("Maghi (Muktsar Fair)", "Punjab"),
-    (3, 23):  _states("Shaheed Diwas (Bhagat Singh Martyrdom)", "Punjab","Chandigarh"),
-    (4, 14):  _states("Baisakhi (State Holiday)", "Punjab"),
-    (11, 1):  _states("Punjab Day (State Holiday)", "Punjab"),
-    (11, 19): _states("Guru Nanak Dev Ji Gurpurab", "Punjab","Haryana","Delhi","Chandigarh"),
+        # ── Puducherry ────────────────────────────────────────────────────────
+        ((8, 15),  _s("Puducherry De Facto Transfer Day","Puducherry")),
+        ((11, 1),  _s("Puducherry Liberation Day","Puducherry")),
 
-    # ── Rajasthan ─────────────────────────────────────────────────────────────
-    (1, 14):  _states("Makar Sankranti / Kite Festival (Jaipur)", "Rajasthan"),
-    (2, 1):   _states("Bikaner Camel Festival", "Rajasthan"),
-    (3, 18):  _states("Gangaur (State Holiday)", "Rajasthan"),
-    (3, 30):  _states("Rajasthan Day", "Rajasthan"),
-    (4, 3):   _states("Teej (Rajasthan)", "Rajasthan"),
-    (8, 3):   _states("Teej Festival (Jaipur)", "Rajasthan"),
-    (10, 15): _states("Pushkar Camel Fair", "Rajasthan"),
-    (10, 20): _states("Marwar Festival (Jodhpur)", "Rajasthan"),
+        # ── Andaman & Nicobar ─────────────────────────────────────────────────
+        ((3,  4),  _s("Island Tourism Festival","Andaman & Nicobar")),
+    ]
 
-    # ── Sikkim ────────────────────────────────────────────────────────────────
-    (1, 5):   _states("Losar (Tibetan New Year)", "Sikkim","Ladakh","Arunachal Pradesh"),
-    (5, 16):  _states("Sikkim Statehood Day (State Holiday)", "Sikkim"),
-    (5, 23):  _states("Saga Dawa", "Sikkim"),
-    (9, 22):  _states("Pang Lhabsol", "Sikkim"),
-    (12, 27): _states("Losoong / Namsoong", "Sikkim"),
+    # Merge all entries with same key into one dict
+    result = {}
+    for key, state_dict in entries:
+        if key not in result:
+            result[key] = {}
+        result[key].update(state_dict)
+    return result
 
-    # ── Tamil Nadu ────────────────────────────────────────────────────────────
-    (1, 13):  _states("Bhogi Pongal", "Tamil Nadu","Puducherry"),
-    (1, 14):  _states("Thai Pongal (State Holiday)", "Tamil Nadu","Puducherry"),
-    (1, 15):  _states("Thiruvalluvar Day (State Holiday)", "Tamil Nadu","Puducherry"),
-    (1, 16):  _states("Uzhavar Thirunal / Mattu Pongal", "Tamil Nadu","Puducherry"),
-    (1, 17):  _states("Kannum Pongal", "Tamil Nadu","Puducherry"),
-    (1, 18):  _states("Jallikattu", "Tamil Nadu"),
-    (4, 14):  _states("Tamil New Year / Puthandu (State Holiday)", "Tamil Nadu","Puducherry"),
-    (6, 1):   _states("Tamil Nadu Statehood Day", "Tamil Nadu"),
-    (12, 15): _states("Chennai Music Season begins", "Tamil Nadu"),
+SOLAR_RULES = _solar_rules()
 
-    # ── Telangana ─────────────────────────────────────────────────────────────
-    (1, 13):  _states("Bhogi (Telangana)", "Telangana"),
-    (1, 15):  _states("Kanuma (Telangana)", "Telangana"),
-    (3, 22):  _states("Ugadi (Telangana State Holiday)", "Telangana"),
-    (6, 2):   _states("Telangana Formation Day (State Holiday)", "Telangana"),
-    (9, 1):   _states("Bathukamma begins", "Telangana"),
-    (10, 2):  _states("Bathukamma (main day)", "Telangana"),
 
-    # ── Tripura ───────────────────────────────────────────────────────────────
-    (1, 14):  _states("Poush Sankranti", "Tripura","West Bengal"),
-    (4, 14):  _states("Garia Puja / Bengali New Year (Tripura)", "Tripura"),
-    (5, 9):   _states("Rabindra Jayanti (Tripura)", "Tripura"),
-    (7, 17):  _states("Kharchi Puja (State Holiday)", "Tripura"),
-    (8, 26):  _states("Ker Puja", "Tripura"),
-    (9, 14):  _states("Durga Puja begins (Tripura)", "Tripura"),
-
-    # ── Uttar Pradesh ─────────────────────────────────────────────────────────
-    (1, 14):  _states("Makar Sankranti / Khichdi Mela", "Uttar Pradesh"),
-    (1, 15):  _states("Magh Mela begins (Prayagraj)", "Uttar Pradesh"),
-    (3, 25):  _states("Holi (Lathmar Holi - Barsana)", "Uttar Pradesh"),
-    (8, 26):  _states("Janmashtami (Mathura-Vrindavan)", "Uttar Pradesh"),
-    (10, 22): _states("Ram Leela (Ramnagar)", "Uttar Pradesh"),
-    (11, 6):  _states("Dev Deepawali (Varanasi)", "Uttar Pradesh"),
-
-    # ── Uttarakhand ───────────────────────────────────────────────────────────
-    (1, 14):  _states("Uttarayani Mela (Bageshwar)", "Uttarakhand"),
-    (3, 22):  _states("Phool Dei (Spring Festival)", "Uttarakhand"),
-    (5, 7):   _states("Nanda Devi Raj Jat Yatra", "Uttarakhand"),
-    (8, 15):  _states("Harela (Kumaon harvest)", "Uttarakhand"),
-    (11, 9):  _states("Uttarakhand Foundation Day (State Holiday)", "Uttarakhand"),
-
-    # ── West Bengal ───────────────────────────────────────────────────────────
-    (1, 14):  _states("Poush Mela (Shantiniketan)", "West Bengal"),
-    (1, 23):  _states("Netaji Jayanti (State Holiday)", "West Bengal"),
-    (4, 14):  _states("Pohela Boishakh (State Holiday)", "West Bengal"),
-    (5, 9):   _states("Rabindra Jayanti (State Holiday)", "West Bengal"),
-    (8, 9):   _states("Karma Puja", "West Bengal"),
-    (10, 2):  _states("Durga Puja begins (WB)", "West Bengal"),
-    (10, 24): _states("Kali Puja (WB State Holiday)", "West Bengal"),
-    (11, 14): _states("Bishnupur Festival", "West Bengal"),
-
-    # ── Delhi ─────────────────────────────────────────────────────────────────
-    (2, 1):   _states("Surajkund Mela", "Delhi","Haryana"),
-    (9, 27):  _states("Delhi Book Fair", "Delhi"),
-    (10, 1):  _states("Qutub Festival", "Delhi"),
-
-    # ── Jammu & Kashmir ───────────────────────────────────────────────────────
-    (1, 13):  _states("Lohri (J&K)", "Jammu & Kashmir"),
-    (3, 22):  _states("Navreh (Kashmiri New Year)", "Jammu & Kashmir"),
-    (6, 15):  _states("Hemis Festival (Ladakh)", "Ladakh","Jammu & Kashmir"),
-    (9, 1):   _states("Ladakh Festival", "Ladakh"),
-    (10, 24): _states("J&K Accession Day", "Jammu & Kashmir","Ladakh"),
-
-    # ── Puducherry ────────────────────────────────────────────────────────────
-    (1, 14):  _states("Pongal (Puducherry State Holiday)", "Puducherry"),
-    (8, 15):  _states("Puducherry De Facto Transfer Day", "Puducherry"),
-    (11, 1):  _states("Puducherry Liberation Day", "Puducherry"),
-
-    # ── Andaman & Nicobar ─────────────────────────────────────────────────────
-    (3, 4):   _states("Island Tourism Festival", "Andaman & Nicobar"),
-    (1, 12):  _states("Swami Vivekananda Jayanti", "Andaman & Nicobar"),
-
-    # ── Lakshadweep ───────────────────────────────────────────────────────────
-    (4, 14):  _states("Vishu (Lakshadweep)", "Lakshadweep"),
-    (8, 29):  _states("Onam (Lakshadweep)", "Lakshadweep"),
-}
-
-# ── Astronomy engine ──────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# ASTRONOMY ENGINE
+# ═════════════════════════════════════════════════════════════════════════════
 
 def _get_ayanamsa(jd: float) -> float:
-    """Lahiri ayanamsa — accurate within ~1 arcminute for modern dates."""
     T = (jd - 2451545.0) / 36525.0
     return 23.85 + 50.3 * T / 3600.0
 
 
 def _compute_panchang(year: int, month: int, day: int) -> dict:
-    """
-    Compute all 5 angas of Panchang at IST sunrise (UTC 00:30).
-    Returns dict with tithi_index, nakshatra_index, yoga_index,
-    karana_index, vara_index, lunar_month_index.
-    """
     ephem_date = ephem.Date(f"{year}/{month}/{day} 00:30:00")
     sun  = ephem.Sun(ephem_date)
     moon = ephem.Moon(ephem_date)
@@ -780,68 +577,55 @@ def _compute_panchang(year: int, month: int, day: int) -> dict:
 
     jd   = float(ephem_date) + 2415020.0
     ayan = _get_ayanamsa(jd)
-
     sun_sid  = (sun_ecl  - ayan) % 360.0
     moon_sid = (moon_ecl - ayan) % 360.0
 
-    # Tithi: every 12° of Moon-Sun elongation
-    diff          = (moon_ecl - sun_ecl) % 360.0
-    tithi_index   = int(diff / 12.0) % 30
-
-    # Nakshatra: Moon sidereal / 13.333°
+    diff            = (moon_ecl - sun_ecl) % 360.0
+    tithi_index     = int(diff / 12.0) % 30
     nakshatra_index = int(moon_sid / (360.0 / 27)) % 27
+    yoga_index      = int(((sun_sid + moon_sid) % 360.0) / (360.0 / 27)) % 27
+    karana_index    = int(diff / 6.0) % 11
+    # Lunar month = Sun's sidereal zodiac sign (Saura month — used by Kalnirnay)
+    # Aries=Chaitra(0), Taurus=Vaishakha(1), ... Pisces=Phalguna(11)
+    # NOTE: Sun's sign lags traditional lunar month name by 1.
+    # We apply +1 shift here so LUNAR_RULES keys match traditional names.
+    lunar_month_index = (int(sun_sid / 30.0) + 1) % 12
 
-    # Yoga: (Sun_sid + Moon_sid) / 13.333°
-    yoga_index = int(((sun_sid + moon_sid) % 360.0) / (360.0 / 27)) % 27
-
-    # Karana: half-tithi (every 6°)
-    karana_index = int(diff / 6.0) % 11
-
-    # Vara: weekday (0=Mon ephem, adjust to 0=Sun for Hindu vara)
     from datetime import date as _date
-    vara_index = _date(year, month, day).weekday()  # 0=Mon..6=Sun
-
-    # Lunar month = Sun's sidereal zodiac sign
-    lunar_month_index = int(sun_sid / 30.0) % 12
+    vara_index = _date(year, month, day).weekday()
 
     return {
-        "tithi_index":        tithi_index,
-        "nakshatra_index":    nakshatra_index,
-        "yoga_index":         yoga_index,
-        "karana_index":       karana_index,
-        "vara_index":         vara_index,
-        "lunar_month_index":  lunar_month_index,
+        "tithi_index": tithi_index, "nakshatra_index": nakshatra_index,
+        "yoga_index": yoga_index, "karana_index": karana_index,
+        "vara_index": vara_index, "lunar_month_index": lunar_month_index,
     }
 
 
+def _find_last_new_moon(ephem_date) -> ephem.Date:
+    return ephem.previous_new_moon(ephem_date)
+
+
 def _collect_state_festivals(p: dict, d) -> dict:
-    """
-    Build {state: [festival, ...]} for all states for date d.
-    p = panchang dict from _compute_panchang.
-    """
     state_map = {s: [] for s in ALL_STATES}
 
-    def _apply(rules_dict, key):
-        entry = rules_dict.get(key)
+    def _apply(rule_dict, key):
+        entry = rule_dict.get(key)
         if not entry:
             return
         for state, name in entry.items():
             if name and state in state_map and name not in state_map[state]:
                 state_map[state].append(name)
 
-    # 1. Lunar festivals
     _apply(LUNAR_RULES, (p["lunar_month_index"], p["tithi_index"]))
 
-    # 2. Solar festivals
+    # Nakshatra-based festivals (Onam Thiruvonam = Shravana nakshatra in Bhadrapada)
+    if p["lunar_month_index"] == 5 and p["nakshatra_index"] == 21:
+        for s in ["Kerala", "Lakshadweep"]:
+            if "Onam - Thiruvonam (Main Day)" not in state_map[s]:
+                state_map[s].append("Onam - Thiruvonam (Main Day)")
+
     _apply(SOLAR_RULES, (d.month, d.day))
 
-    # 3. Tribal/regional solar festivals
-    _apply(TRIBAL_SOLAR_RULES, (d.month, d.day))
-
-    # 4. State-specific local festivals
-    _apply(STATE_LOCAL_RULES, (d.month, d.day))
-
-    # 4. Gazetted national holidays (all states)
     india_hols = holidays_lib.India(years=d.year)
     official   = india_hols.get(d)
     if official:
@@ -852,37 +636,24 @@ def _collect_state_festivals(p: dict, d) -> dict:
     return state_map
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+# PUBLIC API
+# ═════════════════════════════════════════════════════════════════════════════
 
 def get_calendar_data(date_str: str, state: str = None) -> dict:
-    """
-    Returns full Kalnirnay-style Panchang + state-wise festivals.
-    date_str: YYYY-MM-DD
-    state: optional filter (e.g. "Maharashtra")
-    """
     d = datetime.strptime(date_str, "%Y-%m-%d").date()
     p = _compute_panchang(d.year, d.month, d.day)
 
-    tithi_name       = f"{PAKSHA[p['tithi_index']]} {TITHI_NAMES[p['tithi_index']]}"
-    nakshatra_name   = NAKSHATRAS[p["nakshatra_index"]]
-    yoga_name        = YOGA_NAMES[p["yoga_index"]]
-    karana_name      = KARANA_NAMES[p["karana_index"]]
-    vara_name        = VARA_NAMES[p["vara_index"]]
-    lunar_month_name = LUNAR_MONTH_NAMES[p["lunar_month_index"]]
-
     state_festivals = _collect_state_festivals(p, d)
 
-    # Filter to one state if requested
     if state:
         matched = next((s for s in ALL_STATES if s.lower() == state.lower()), None)
         if not matched:
             raise ValueError(f"Unknown state: '{state}'. Use GET /states for valid names.")
         state_festivals = {matched: state_festivals[matched]}
 
-    # Active states only (have at least one festival)
     active = {s: v for s, v in state_festivals.items() if v}
 
-    # All unique festivals across all active states
     seen, all_unique = set(), []
     for fests in active.values():
         for f in fests:
@@ -891,16 +662,16 @@ def get_calendar_data(date_str: str, state: str = None) -> dict:
                 all_unique.append(f)
 
     return {
-        "date":          date_str,
+        "date": date_str,
         "panchang": {
-            "vara":        vara_name,
-            "lunar_month": lunar_month_name,
-            "tithi":       tithi_name,
-            "nakshatra":   nakshatra_name,
-            "yoga":        yoga_name,
-            "karana":      karana_name,
+            "vara":        VARA_NAMES[p["vara_index"]],
+            "lunar_month": LUNAR_MONTH_NAMES[p["lunar_month_index"]],
+            "tithi":       f"{PAKSHA[p['tithi_index']]} {TITHI_NAMES[p['tithi_index']]}",
+            "nakshatra":   NAKSHATRAS[p["nakshatra_index"]],
+            "yoga":        YOGA_NAMES[p["yoga_index"]],
+            "karana":      KARANA_NAMES[p["karana_index"]],
         },
-        "festivals_today":  all_unique,
+        "festivals_today": all_unique,
         "state_festivals":  active,
         "features": {
             "day_of_week":    p["vara_index"],
