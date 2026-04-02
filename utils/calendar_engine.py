@@ -794,3 +794,4 @@ def get_calendar_data(date_str: str, state: str = None) -> dict:
         "festivals":   all_unique,
         "state_festivals": active,
     }
+  
