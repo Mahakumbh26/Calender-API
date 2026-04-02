@@ -102,9 +102,10 @@ def _build_lunar_rules():
                 entries.append(((s % 12, t), sd))
 
     # ── Chaitra / New Year festivals ──────────────────────────────────────────
-    # Gudi Padwa / Ugadi = Chaitra Shukla Pratipada (tithi 0 ONLY)
-    # sun=11(Pisces) in most years, sun=0(Aries) in 2026
-    add([11,0],[0], _m(
+    # Gudi Padwa / Ugadi = Chaitra Shukla Pratipada (tithi 0)
+    # Sun is in Pisces (11) when Pratipada starts — this is the correct Chaitra new moon
+    # When sun=0 (Aries) it's Adhika (leap) month — NOT Gudi Padwa
+    add([11],[0], _m(
         _s("Gudi Padwa","Maharashtra","Goa","Dadra & Nagar Haveli"),
         _s("Ugadi","Karnataka","Andhra Pradesh","Telangana"),
         _s("Cheti Chand","Rajasthan","Gujarat","Delhi","Madhya Pradesh","Chandigarh"),
@@ -521,7 +522,9 @@ def _get_ayanamsa(jd: float) -> float:
 
 
 def _compute_panchang(year: int, month: int, day: int) -> dict:
-    ephem_date = ephem.Date(f"{year}/{month}/{day} 00:30:00")
+    # Kalnirnay rule: festival date = day when tithi is active at sunrise (IST ~06:30)
+    # Sample at UTC 01:30 = IST 07:00 to correctly catch tithis starting just after sunrise
+    ephem_date = ephem.Date(f"{year}/{month}/{day} 01:30:00")
     sun  = ephem.Sun(ephem_date)
     moon = ephem.Moon(ephem_date)
 
@@ -794,4 +797,3 @@ def get_calendar_data(date_str: str, state: str = None) -> dict:
         "festivals":   all_unique,
         "state_festivals": active,
     }
-  
